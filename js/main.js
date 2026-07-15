@@ -7,8 +7,6 @@ import {
   setDoc,
   onSnapshot,
   serverTimestamp,
-  orderBy,
-  query,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { db, ensureSignedIn, firebaseSignOut } from "./firebase.js";
 import {
@@ -321,14 +319,23 @@ function startApp() {
 
 // ---------- Firestore購読 ----------
 
+function sortReports(list) {
+  list.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+    return (a.workCode || "") < (b.workCode || "") ? 1 : -1;
+  });
+}
+
 function subscribeReports() {
   if (unsubscribeReports) unsubscribeReports();
-  const q = query(reportsCol, orderBy("date", "desc"), orderBy("workCode", "desc"));
+  // orderByを2つ以上重ねると複合インデックスの手動作成が必要になり、
+  // Firebase設定を一切触らせない設計と相性が悪いのでソートはクライアント側で行う
   let firstLoad = true;
   unsubscribeReports = onSnapshot(
-    q,
+    reportsCol,
     (snapshot) => {
       reports = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      sortReports(reports);
       renderList();
       setLoading(false);
       if (firstLoad) {
@@ -490,15 +497,19 @@ function showDetail(id) {
   showView("detail");
 }
 
+function goToList() {
+  const url = new URL(location.href);
+  url.searchParams.delete("code");
+  history.replaceState(null, "", url);
+  showView("list");
+}
+
 async function handleDelete(r) {
   if (!confirm(`#${r.workCode} を削除しますか?`)) return;
   setLoading(true);
   try {
     await deleteDoc(doc(db, "rooms", roomId, "reports", r.id));
-    const url = new URL(location.href);
-    url.searchParams.delete("code");
-    history.replaceState(null, "", url);
-    showView("list");
+    goToList();
   } catch (err) {
     console.error(err);
     alert("削除に失敗しました");
@@ -511,10 +522,7 @@ document.querySelectorAll(".back-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
     const target = btn.dataset.back;
     if (target === "list") {
-      const url = new URL(location.href);
-      url.searchParams.delete("code");
-      history.replaceState(null, "", url);
-      showView("list");
+      goToList();
     } else if (target === "prev") {
       showView(previousView);
     }
@@ -639,10 +647,9 @@ document.getElementById("editor-form").addEventListener("submit", async (e) => {
         images: pendingImages,
         updatedAt: serverTimestamp(),
       });
-      showDetail(editingId);
     } else {
       const workCode = computeNextWorkCode(reports);
-      const docRef = await addDoc(reportsCol, {
+      await addDoc(reportsCol, {
         workCode,
         date: formatDateInput(new Date()),
         title,
@@ -651,8 +658,8 @@ document.getElementById("editor-form").addEventListener("submit", async (e) => {
         images: pendingImages,
         createdAt: serverTimestamp(),
       });
-      showDetail(docRef.id);
     }
+    goToList();
   } catch (err) {
     console.error(err);
     errorEl.textContent = "保存に失敗しました。通信環境を確認してください";
