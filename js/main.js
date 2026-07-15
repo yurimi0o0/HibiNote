@@ -58,6 +58,7 @@ function showView(name) {
 
 function showTopScreen(name) {
   document.getElementById("boot-loading").classList.add("hidden");
+  document.getElementById("welcome-screen").classList.toggle("hidden", name !== "welcome");
   document.getElementById("new-room-screen").classList.toggle("hidden", name !== "newroom");
   document.getElementById("gate-screen").classList.toggle("hidden", name !== "gate");
   document.getElementById("app-screen").classList.toggle("hidden", name !== "app");
@@ -89,19 +90,21 @@ function boot() {
     }
   }
 
-  let currentRoomId = loadRoomId();
-  const isNewRoom = !currentRoomId;
-  if (isNewRoom) {
-    currentRoomId = generateRoomId();
-    saveRoomId(currentRoomId);
+  const savedRoomId = loadRoomId();
+  if (savedRoomId) {
+    enterRoom(savedRoomId, { isNew: false });
+  } else {
+    showTopScreen("welcome");
   }
-  roomId = currentRoomId;
+}
 
+function enterRoom(id, { isNew }) {
+  roomId = id;
   reportsCol = collection(db, "rooms", roomId, "reports");
   passcodeDocRef = doc(db, "rooms", roomId, "settings", "passcode");
   subscribePasscode();
 
-  if (isNewRoom) {
+  if (isNew) {
     document.getElementById("new-room-invite-link").value = buildInviteLink(roomId);
     showTopScreen("newroom");
   } else if (isGateOpen()) {
@@ -111,6 +114,42 @@ function boot() {
     document.getElementById("passcode-input").focus();
   }
 }
+
+function parseRoomIdInput(raw) {
+  let candidate = raw;
+  try {
+    candidate = new URL(raw).searchParams.get("room") || "";
+  } catch {
+    // URLでなければ、そのままルームIDとして扱う
+  }
+  return candidate;
+}
+
+document.getElementById("welcome-join-btn").addEventListener("click", () => {
+  const raw = document.getElementById("welcome-join-input").value.trim();
+  const errorEl = document.getElementById("welcome-join-error");
+  errorEl.textContent = "";
+
+  if (!raw) {
+    errorEl.textContent = "招待リンクを貼り付けてください";
+    return;
+  }
+
+  const candidate = parseRoomIdInput(raw);
+  if (!isValidRoomId(candidate)) {
+    errorEl.textContent = "招待リンクを読み取れませんでした。URLをそのまま貼り付けてください";
+    return;
+  }
+
+  saveRoomId(candidate);
+  enterRoom(candidate, { isNew: false });
+});
+
+document.getElementById("welcome-create-btn").addEventListener("click", () => {
+  const id = generateRoomId();
+  saveRoomId(id);
+  enterRoom(id, { isNew: true });
+});
 
 document.getElementById("new-room-continue-btn").addEventListener("click", () => {
   if (isGateOpen()) {
@@ -174,15 +213,24 @@ function updateGateStatus() {
 function subscribePasscode() {
   if (passcodeUnsubscribe) passcodeUnsubscribe();
   passcodeLoaded = false;
+  // 通信環境によってはonSnapshotが成功も失敗も返さず固まることがあるための保険
+  const timeoutId = setTimeout(() => {
+    if (passcodeLoaded) return;
+    passcodeLoaded = true;
+    document.getElementById("passcode-status").textContent =
+      "読み込みに時間がかかっています。通信環境をご確認のうえ再読み込みしてください。";
+  }, 10000);
   passcodeUnsubscribe = onSnapshot(
     passcodeDocRef,
     (snap) => {
+      clearTimeout(timeoutId);
       passcodeLoaded = true;
       currentPasscode = snap.exists() ? snap.data().code : null;
       updateGateStatus();
       updateCurrentPasscodeDisplay();
     },
     (err) => {
+      clearTimeout(timeoutId);
       console.error(err);
       passcodeLoaded = true;
       document.getElementById("passcode-status").textContent = "合言葉の読み込みに失敗しました";
@@ -324,9 +372,16 @@ function subscribeReports() {
   // orderByを2つ以上重ねると複合インデックスの手動作成が必要になり、
   // Firebase設定を一切触らせない設計と相性が悪いのでソートはクライアント側で行う
   let firstLoad = true;
+  // 通信環境によってはonSnapshotが成功も失敗も返さず固まることがあるための保険
+  const timeoutId = setTimeout(() => {
+    if (!firstLoad) return;
+    setLoading(false);
+    alert("読み込みに時間がかかっています。通信環境をご確認のうえ再読み込みしてください。");
+  }, 10000);
   unsubscribeReports = onSnapshot(
     reportsCol,
     (snapshot) => {
+      clearTimeout(timeoutId);
       reports = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       sortReports(reports);
       renderList();
@@ -337,6 +392,7 @@ function subscribeReports() {
       }
     },
     (err) => {
+      clearTimeout(timeoutId);
       console.error(err);
       setLoading(false);
       alert("報告データの取得に失敗しました");
