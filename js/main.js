@@ -163,7 +163,7 @@ function updateGateStatus() {
     statusEl.textContent = "読み込み中...";
     submitBtn.disabled = true;
   } else if (!currentPasscode) {
-    statusEl.textContent = "まだ合言葉が発行されていません。下の「管理者用」から発行してください。";
+    statusEl.textContent = "まだ合言葉が発行されていません。下の「招待リンク・合言葉を確認する」から発行してください。";
     submitBtn.disabled = true;
   } else {
     statusEl.textContent = "";
@@ -180,6 +180,7 @@ function subscribePasscode() {
       passcodeLoaded = true;
       currentPasscode = snap.exists() ? snap.data().code : null;
       updateGateStatus();
+      updateCurrentPasscodeDisplay();
     },
     (err) => {
       console.error(err);
@@ -221,10 +222,16 @@ document.getElementById("switch-project-btn").addEventListener("click", () => {
   location.href = location.pathname;
 });
 
-// ---------- 招待リンク(ゲート画面・ヘッダーから再表示) ----------
+// ---------- 招待リンク・合言葉(ゲート画面・ヘッダーから確認/再発行) ----------
+
+function updateCurrentPasscodeDisplay() {
+  const el = document.getElementById("current-passcode-text");
+  if (el) el.textContent = currentPasscode || "(未発行)";
+}
 
 document.getElementById("show-invite-btn").addEventListener("click", () => {
   document.getElementById("gate-invite-link-text").value = buildInviteLink(roomId);
+  updateCurrentPasscodeDisplay();
   document.getElementById("gate-normal").classList.add("hidden");
   document.getElementById("gate-invite").classList.remove("hidden");
 });
@@ -236,6 +243,10 @@ document.getElementById("close-invite-btn").addEventListener("click", () => {
 
 document.getElementById("gate-copy-invite-btn").addEventListener("click", () =>
   copyText("gate-invite-link-text", "gate-copy-invite-btn")
+);
+
+document.getElementById("copy-current-passcode-btn").addEventListener("click", () =>
+  copyText("current-passcode-text", "copy-current-passcode-btn")
 );
 
 document.getElementById("header-invite-btn").addEventListener("click", async () => {
@@ -252,19 +263,6 @@ document.getElementById("header-invite-btn").addEventListener("click", async () 
   }
 });
 
-// ---------- 合言葉の発行(管理者用) ----------
-
-document.getElementById("show-admin-btn").addEventListener("click", () => {
-  document.getElementById("gate-normal").classList.add("hidden");
-  document.getElementById("gate-admin").classList.remove("hidden");
-});
-
-document.getElementById("close-admin-btn").addEventListener("click", () => {
-  document.getElementById("generated-passcode-box").classList.add("hidden");
-  document.getElementById("gate-admin").classList.add("hidden");
-  document.getElementById("gate-normal").classList.remove("hidden");
-});
-
 function isTooSimplePasscode(code) {
   const digits = code.split("");
   const allSame = digits.every((d) => d === digits[0]);
@@ -277,22 +275,21 @@ function isTooSimplePasscode(code) {
 function generateRandomPasscode() {
   let code;
   do {
-    const values = new Uint32Array(8);
+    const values = new Uint32Array(6);
     crypto.getRandomValues(values);
     code = Array.from(values, (n) => n % 10).join("");
   } while (isTooSimplePasscode(code));
   return code;
 }
 
-document.getElementById("generate-passcode-btn").addEventListener("click", async () => {
-  const btn = document.getElementById("generate-passcode-btn");
+document.getElementById("reissue-passcode-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("reissue-passcode-btn");
   btn.disabled = true;
   try {
     await ensureSignedIn();
     const code = generateRandomPasscode();
     await setDoc(passcodeDocRef, { code, updatedAt: serverTimestamp() });
-    document.getElementById("generated-passcode-text").textContent = code;
-    document.getElementById("generated-passcode-box").classList.remove("hidden");
+    // currentPasscodeとその表示はonSnapshotのコールバックで自動更新される
   } catch (err) {
     console.error(err);
     alert("合言葉の発行に失敗しました。通信環境を確認してください");
@@ -300,10 +297,6 @@ document.getElementById("generate-passcode-btn").addEventListener("click", async
     btn.disabled = false;
   }
 });
-
-document.getElementById("copy-passcode-btn").addEventListener("click", () =>
-  copyText("generated-passcode-text", "copy-passcode-btn")
-);
 
 function startApp() {
   showTopScreen("app");
