@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HibiNote</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -54,31 +55,14 @@
     <div id="gate-normal">
       <p>合言葉を入力してください</p>
       <form id="passcode-form" autocomplete="off">
-        <input type="text" id="passcode-input" inputmode="numeric" pattern="[0-9]*" maxlength="8"
-               autocomplete="off" placeholder="8桁の合言葉" required>
+        <input type="text" id="passcode-input" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+               autocomplete="off" placeholder="6桁の合言葉" required>
         <button type="submit" class="btn btn-primary">入室する</button>
       </form>
       <p id="passcode-error" class="error-text" role="alert"></p>
       <p id="passcode-status" class="hint-text"></p>
-      <button type="button" id="show-admin-btn" class="link-btn">管理者用: 合言葉を発行する</button>
-      <button type="button" id="show-invite-btn" class="link-btn">招待リンクを表示する</button>
+      <button type="button" id="show-invite-btn" class="link-btn">招待リンク・合言葉を確認する</button>
       <button type="button" id="switch-project-btn" class="link-btn">別のチームに切り替える</button>
-    </div>
-
-    <div id="gate-admin" class="hidden">
-      <p>新しい合言葉を発行します。発行すると、これまでの合言葉は使えなくなります(すでにログイン済みの端末はそのまま利用できます)。</p>
-      <button type="button" id="generate-passcode-btn" class="btn btn-primary">新しい合言葉を発行する</button>
-
-      <div id="generated-passcode-box" class="hidden">
-        <p>発行された合言葉(この画面を離れると二度と表示されません):</p>
-        <div class="passcode-display">
-          <span id="generated-passcode-text"></span>
-          <button type="button" id="copy-passcode-btn" class="btn">コピー</button>
-        </div>
-        <p class="hint-text">チームメンバーに個別に共有してください。</p>
-      </div>
-
-      <button type="button" id="close-admin-btn" class="btn btn-ghost">戻る</button>
     </div>
 
     <div id="gate-invite" class="hidden">
@@ -87,6 +71,15 @@
         <input type="text" id="gate-invite-link-text" readonly>
         <button type="button" id="gate-copy-invite-btn" class="btn">コピー</button>
       </div>
+
+      <p class="hint-text">現在の合言葉:</p>
+      <div class="passcode-display">
+        <span id="current-passcode-text"></span>
+        <button type="button" id="copy-current-passcode-btn" class="btn">コピー</button>
+      </div>
+      <button type="button" id="reissue-passcode-btn" class="btn btn-ghost">合言葉を発行し直す</button>
+      <p class="hint-text">発行し直すと古い合言葉は使えなくなります(すでにログイン済みの端末はそのまま利用できます)。</p>
+
       <button type="button" id="close-invite-btn" class="btn btn-ghost">戻る</button>
     </div>
   </div>
