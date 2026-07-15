@@ -10,15 +10,14 @@ import {
   orderBy,
   query,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { initFirebase, ensureSignedIn, firebaseSignOut } from "./firebase.js";
+import { db, ensureSignedIn, firebaseSignOut } from "./firebase.js";
 import {
-  loadSavedConfig,
-  saveConfig,
-  clearConfig,
-  validateConfig,
-  parseFirebaseConfigSnippet,
-  encodeInviteLink,
-  decodeSetupParam,
+  generateRoomId,
+  isValidRoomId,
+  loadRoomId,
+  saveRoomId,
+  clearRoomId,
+  buildInviteLink,
 } from "./project.js";
 import { compressImage } from "./image.js";
 
@@ -26,7 +25,7 @@ const PASSCODE_KEY = "hibinote_passcode_ok";
 const AUTHOR_KEY = "hibinote_author";
 const MAX_DOC_SIZE = 900_000; // Firestore 1ドキュメント上限(1MB)に対する安全マージン
 
-let db = null;
+let roomId = null;
 let reportsCol = null;
 let passcodeDocRef = null;
 let passcodeUnsubscribe = null;
@@ -57,7 +56,7 @@ function showView(name) {
 }
 
 function showTopScreen(name) {
-  document.getElementById("setup-screen").classList.toggle("hidden", name !== "setup");
+  document.getElementById("new-room-screen").classList.toggle("hidden", name !== "newroom");
   document.getElementById("gate-screen").classList.toggle("hidden", name !== "gate");
   document.getElementById("app-screen").classList.toggle("hidden", name !== "app");
 }
@@ -66,46 +65,44 @@ function setLoading(isLoading) {
   document.getElementById("loading-overlay").classList.toggle("hidden", !isLoading);
 }
 
-// ---------- プロジェクト設定(Firebase接続先) ----------
+// ---------- チーム(ルーム)の決定 ----------
 
 function boot() {
   const params = new URLSearchParams(location.search);
-  const setupParam = params.get("setup");
-  if (setupParam) {
+  const roomParam = params.get("room");
+  if (roomParam && isValidRoomId(roomParam)) {
     const url = new URL(location.href);
-    url.searchParams.delete("setup");
+    url.searchParams.delete("room");
     history.replaceState(null, "", url);
 
-    const decoded = decodeSetupParam(setupParam);
-    if (decoded) {
-      const existing = loadSavedConfig();
-      const isDifferent = existing && JSON.stringify(existing) !== JSON.stringify(decoded);
-      if (
-        !existing ||
-        !isDifferent ||
-        confirm("招待リンクのプロジェクトに切り替えますか?(現在の合言葉ログイン状態はリセットされます)")
-      ) {
-        if (isDifferent) closeGate();
-        saveConfig(decoded);
-      }
+    const existing = loadRoomId();
+    const isDifferent = existing && existing !== roomParam;
+    if (
+      !existing ||
+      !isDifferent ||
+      confirm("招待リンクのチームに切り替えますか?(現在の合言葉ログイン状態はリセットされます)")
+    ) {
+      if (isDifferent) closeGate();
+      saveRoomId(roomParam);
     }
   }
 
-  const config = loadSavedConfig();
-  if (config) {
-    launchWithConfig(config);
-  } else {
-    showTopScreen("setup");
+  let currentRoomId = loadRoomId();
+  const isNewRoom = !currentRoomId;
+  if (isNewRoom) {
+    currentRoomId = generateRoomId();
+    saveRoomId(currentRoomId);
   }
-}
+  roomId = currentRoomId;
 
-function launchWithConfig(config) {
-  db = initFirebase(config);
-  reportsCol = collection(db, "reports");
-  passcodeDocRef = doc(db, "settings", "passcode");
+  reportsCol = collection(db, "rooms", roomId, "reports");
+  passcodeDocRef = doc(db, "rooms", roomId, "settings", "passcode");
   subscribePasscode();
 
-  if (isGateOpen()) {
+  if (isNewRoom) {
+    document.getElementById("new-room-invite-link").value = buildInviteLink(roomId);
+    showTopScreen("newroom");
+  } else if (isGateOpen()) {
     startApp();
   } else {
     showTopScreen("gate");
@@ -113,41 +110,18 @@ function launchWithConfig(config) {
   }
 }
 
-document.getElementById("setup-save-btn").addEventListener("click", () => {
-  const text = document.getElementById("setup-config-input").value.trim();
-  const errorEl = document.getElementById("setup-error");
-  errorEl.textContent = "";
-
-  if (!text) {
-    errorEl.textContent = "Firebaseの設定を貼り付けてください";
-    return;
+document.getElementById("new-room-continue-btn").addEventListener("click", () => {
+  if (isGateOpen()) {
+    startApp();
+  } else {
+    showTopScreen("gate");
+    document.getElementById("passcode-input").focus();
   }
-
-  let config;
-  try {
-    config = JSON.parse(text);
-  } catch {
-    config = parseFirebaseConfigSnippet(text);
-  }
-
-  if (!validateConfig(config)) {
-    errorEl.textContent = "設定を読み取れませんでした。Firebaseコンソールのコードをそのまま貼り付けてください";
-    return;
-  }
-
-  saveConfig(config);
-  document.getElementById("invite-link-text").value = encodeInviteLink(config);
-  document.getElementById("setup-form-box").classList.add("hidden");
-  document.getElementById("setup-invite-box").classList.remove("hidden");
 });
 
-document.getElementById("copy-invite-btn").addEventListener("click", () =>
-  copyText("invite-link-text", "copy-invite-btn")
+document.getElementById("copy-new-room-invite-btn").addEventListener("click", () =>
+  copyText("new-room-invite-link", "copy-new-room-invite-btn")
 );
-
-document.getElementById("setup-continue-btn").addEventListener("click", () => {
-  launchWithConfig(loadSavedConfig());
-});
 
 async function copyText(sourceId, btnId) {
   const source = document.getElementById(sourceId);
@@ -234,18 +208,21 @@ document.getElementById("logout-btn").addEventListener("click", () => {
 });
 
 document.getElementById("switch-project-btn").addEventListener("click", () => {
-  if (!confirm("別のプロジェクトに切り替えますか?現在の合言葉ログイン状態もリセットされます。")) return;
-  clearConfig();
+  if (
+    !confirm(
+      "別の新しいチームを始めますか?現在の合言葉ログイン状態もリセットされます。参加したいチームがある場合は、このボタンではなくそのチームの招待リンクを開いてください。"
+    )
+  )
+    return;
+  clearRoomId();
   closeGate();
   location.href = location.pathname;
 });
 
-// ---------- 招待リンク(ゲート画面から再表示) ----------
+// ---------- 招待リンク(ゲート画面・ヘッダーから再表示) ----------
 
 document.getElementById("show-invite-btn").addEventListener("click", () => {
-  const config = loadSavedConfig();
-  if (!config) return;
-  document.getElementById("gate-invite-link-text").value = encodeInviteLink(config);
+  document.getElementById("gate-invite-link-text").value = buildInviteLink(roomId);
   document.getElementById("gate-normal").classList.add("hidden");
   document.getElementById("gate-invite").classList.remove("hidden");
 });
@@ -260,11 +237,9 @@ document.getElementById("gate-copy-invite-btn").addEventListener("click", () =>
 );
 
 document.getElementById("header-invite-btn").addEventListener("click", async () => {
-  const config = loadSavedConfig();
-  if (!config) return;
   const btn = document.getElementById("header-invite-btn");
   try {
-    await navigator.clipboard.writeText(encodeInviteLink(config));
+    await navigator.clipboard.writeText(buildInviteLink(roomId));
     const original = btn.textContent;
     btn.textContent = "コピーしました";
     setTimeout(() => {
@@ -515,7 +490,7 @@ async function handleDelete(r) {
   if (!confirm(`#${r.workCode} を削除しますか?`)) return;
   setLoading(true);
   try {
-    await deleteDoc(doc(db, "reports", r.id));
+    await deleteDoc(doc(db, "rooms", roomId, "reports", r.id));
     const url = new URL(location.href);
     url.searchParams.delete("code");
     history.replaceState(null, "", url);
@@ -653,7 +628,7 @@ document.getElementById("editor-form").addEventListener("submit", async (e) => {
   setLoading(true);
   try {
     if (editingId) {
-      await updateDoc(doc(db, "reports", editingId), {
+      await updateDoc(doc(db, "rooms", roomId, "reports", editingId), {
         title,
         body,
         author,

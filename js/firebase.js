@@ -6,22 +6,11 @@ import {
   signOut,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { FIREBASE_CONFIG } from "./firebase-config.js";
 
-let app = null;
-let auth = null;
-let db = null;
-
-// ユーザーが貼り付けたFirebase設定でその場で初期化する(コードにプロジェクトを埋め込まない)
-export function initFirebase(config) {
-  app = initializeApp(config);
-  auth = getAuth(app);
-  db = getFirestore(app);
-  return db;
-}
-
-export function getDb() {
-  return db;
-}
+const app = initializeApp(FIREBASE_CONFIG);
+const auth = getAuth(app);
+export const db = getFirestore(app);
 
 export function ensureSignedIn() {
   return new Promise((resolve, reject) => {
@@ -43,5 +32,5 @@ export function ensureSignedIn() {
 }
 
 export function firebaseSignOut() {
-  return auth ? signOut(auth).catch(() => {}) : Promise.resolve();
+  return signOut(auth).catch(() => {});
 }

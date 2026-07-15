@@ -8,33 +8,16 @@
 </head>
 <body>
 
-<div id="setup-screen" class="screen hidden">
+<div id="new-room-screen" class="screen hidden">
   <div class="gate-box">
     <h1>HibiNote</h1>
-
-    <div id="setup-form-box">
-      <p>このサイトはまだどのFirebaseプロジェクトにも接続されていません。</p>
-      <p class="hint-text">
-        新しくチーム・プロジェクトで使う場合は、あなた自身のFirebaseプロジェクトを作成し(無料)、
-        「プロジェクトの設定 &gt; マイアプリ」に表示されるコードをそのまま下に貼り付けてください。
-      </p>
-      <label>Firebase設定を貼り付け
-        <textarea id="setup-config-input" rows="8" placeholder="const firebaseConfig = { apiKey: &quot;...&quot;, ... };"></textarea>
-      </label>
-      <p id="setup-error" class="error-text" role="alert"></p>
-      <button type="button" id="setup-save-btn" class="btn btn-primary">保存してはじめる</button>
-      <p class="hint-text">すでにチームの招待リンクを受け取っている場合は、そのリンクを直接開いてください(このフォームへの入力は不要です)。</p>
+    <p>あなた専用の新しいチームができました。</p>
+    <div class="invite-link-box">
+      <input type="text" id="new-room-invite-link" readonly>
+      <button type="button" id="copy-new-room-invite-btn" class="btn">コピー</button>
     </div>
-
-    <div id="setup-invite-box" class="hidden">
-      <p>設定を保存しました。以下がこのプロジェクトの招待リンクです。</p>
-      <div class="invite-link-box">
-        <input type="text" id="invite-link-text" readonly>
-        <button type="button" id="copy-invite-btn" class="btn">コピー</button>
-      </div>
-      <p class="hint-text">このリンクを開くだけで、友達も同じプロジェクトに接続できます。合言葉は別途発行して共有してください。</p>
-      <button type="button" id="setup-continue-btn" class="btn btn-primary">合言葉の画面へ進む</button>
-    </div>
+    <p class="hint-text">このリンクを開いた人だけが、このチームの報告を見たり投稿したりできます。友達に共有してください。合言葉は次の画面で発行できます。</p>
+    <button type="button" id="new-room-continue-btn" class="btn btn-primary">はじめる</button>
   </div>
 </div>
 
@@ -53,7 +36,7 @@
       <p id="passcode-status" class="hint-text"></p>
       <button type="button" id="show-admin-btn" class="link-btn">管理者用: 合言葉を発行する</button>
       <button type="button" id="show-invite-btn" class="link-btn">招待リンクを表示する</button>
-      <button type="button" id="switch-project-btn" class="link-btn">別のプロジェクトに切り替える</button>
+      <button type="button" id="switch-project-btn" class="link-btn">別のチームに切り替える</button>
     </div>
 
     <div id="gate-admin" class="hidden">
@@ -73,7 +56,7 @@
     </div>
 
     <div id="gate-invite" class="hidden">
-      <p>このプロジェクトの招待リンクです。共有すると同じプロジェクトに接続できます。</p>
+      <p>このチームの招待リンクです。共有すると同じチームに接続できます。</p>
       <div class="invite-link-box">
         <input type="text" id="gate-invite-link-text" readonly>
         <button type="button" id="gate-copy-invite-btn" class="btn">コピー</button>

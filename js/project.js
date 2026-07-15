@@ -1,60 +1,33 @@
-const CONFIG_KEY = "hibinote_firebase_config";
-const REQUIRED_FIELDS = [
-  "apiKey",
-  "authDomain",
-  "projectId",
-  "storageBucket",
-  "messagingSenderId",
-  "appId",
-];
+const ROOM_KEY = "hibinote_room_id";
+const ROOM_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 
-export function loadSavedConfig() {
-  try {
-    const raw = localStorage.getItem(CONFIG_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
+// URLで共有しやすい、推測困難なランダムID(チーム=Firestore上の名前空間)
+export function generateRoomId(length = 10) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => ROOM_ALPHABET[b % ROOM_ALPHABET.length]).join("");
 }
 
-export function saveConfig(config) {
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+export function isValidRoomId(id) {
+  return typeof id === "string" && /^[a-z0-9]{6,32}$/.test(id);
 }
 
-export function clearConfig() {
-  localStorage.removeItem(CONFIG_KEY);
+export function loadRoomId() {
+  return localStorage.getItem(ROOM_KEY);
 }
 
-export function validateConfig(config) {
-  return !!config && REQUIRED_FIELDS.every((key) => typeof config[key] === "string" && config[key].length > 0);
+export function saveRoomId(roomId) {
+  localStorage.setItem(ROOM_KEY, roomId);
 }
 
-// FirebaseコンソールからコピーしたJS/JSONスニペットをそのまま貼れるように緩くパースする
-export function parseFirebaseConfigSnippet(text) {
-  const config = {};
-  for (const field of REQUIRED_FIELDS) {
-    const match = text.match(new RegExp(field + '\\s*:\\s*["\']([^"\']+)["\']'));
-    if (match) config[field] = match[1];
-  }
-  return config;
+export function clearRoomId() {
+  localStorage.removeItem(ROOM_KEY);
 }
 
-export function encodeInviteLink(config) {
-  const json = JSON.stringify(config);
-  const base64 = btoa(unescape(encodeURIComponent(json)));
+export function buildInviteLink(roomId) {
   const url = new URL(location.href);
   url.search = "";
   url.hash = "";
-  url.searchParams.set("setup", base64);
+  url.searchParams.set("room", roomId);
   return url.toString();
-}
-
-export function decodeSetupParam(param) {
-  try {
-    const json = decodeURIComponent(escape(atob(param)));
-    const config = JSON.parse(json);
-    return validateConfig(config) ? config : null;
-  } catch {
-    return null;
-  }
 }

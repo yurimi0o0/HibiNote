@@ -87,17 +87,7 @@ body {
   font-size: 0.8rem;
 }
 
-#setup-form-box label {
-  text-align: left;
-}
-
-#setup-config-input {
-  font-family: monospace;
-  font-size: 0.8rem;
-}
-
-#setup-invite-box .btn,
-#setup-form-box #setup-save-btn {
+#new-room-screen .btn-primary {
   width: 100%;
   margin-top: 10px;
 }
