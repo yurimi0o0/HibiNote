@@ -11,14 +11,24 @@ import {
   query,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { db, ensureSignedIn, firebaseSignOut } from "./firebase.js";
+import {
+  generateRoomId,
+  isValidRoomId,
+  loadRoomId,
+  saveRoomId,
+  clearRoomId,
+  buildInviteLink,
+} from "./project.js";
 import { compressImage } from "./image.js";
 
 const PASSCODE_KEY = "hibinote_passcode_ok";
 const AUTHOR_KEY = "hibinote_author";
 const MAX_DOC_SIZE = 900_000; // Firestore 1ドキュメント上限(1MB)に対する安全マージン
 
-const reportsCol = collection(db, "reports");
-const passcodeDocRef = doc(db, "settings", "passcode");
+let roomId = null;
+let reportsCol = null;
+let passcodeDocRef = null;
+let passcodeUnsubscribe = null;
 
 let currentPasscode = null;
 let passcodeLoaded = false;
@@ -45,8 +55,89 @@ function showView(name) {
   activeView = name;
 }
 
+function showTopScreen(name) {
+  document.getElementById("new-room-screen").classList.toggle("hidden", name !== "newroom");
+  document.getElementById("gate-screen").classList.toggle("hidden", name !== "gate");
+  document.getElementById("app-screen").classList.toggle("hidden", name !== "app");
+}
+
 function setLoading(isLoading) {
   document.getElementById("loading-overlay").classList.toggle("hidden", !isLoading);
+}
+
+// ---------- チーム(ルーム)の決定 ----------
+
+function boot() {
+  const params = new URLSearchParams(location.search);
+  const roomParam = params.get("room");
+  if (roomParam && isValidRoomId(roomParam)) {
+    const url = new URL(location.href);
+    url.searchParams.delete("room");
+    history.replaceState(null, "", url);
+
+    const existing = loadRoomId();
+    const isDifferent = existing && existing !== roomParam;
+    if (
+      !existing ||
+      !isDifferent ||
+      confirm("招待リンクのチームに切り替えますか?(現在の合言葉ログイン状態はリセットされます)")
+    ) {
+      if (isDifferent) closeGate();
+      saveRoomId(roomParam);
+    }
+  }
+
+  let currentRoomId = loadRoomId();
+  const isNewRoom = !currentRoomId;
+  if (isNewRoom) {
+    currentRoomId = generateRoomId();
+    saveRoomId(currentRoomId);
+  }
+  roomId = currentRoomId;
+
+  reportsCol = collection(db, "rooms", roomId, "reports");
+  passcodeDocRef = doc(db, "rooms", roomId, "settings", "passcode");
+  subscribePasscode();
+
+  if (isNewRoom) {
+    document.getElementById("new-room-invite-link").value = buildInviteLink(roomId);
+    showTopScreen("newroom");
+  } else if (isGateOpen()) {
+    startApp();
+  } else {
+    showTopScreen("gate");
+    document.getElementById("passcode-input").focus();
+  }
+}
+
+document.getElementById("new-room-continue-btn").addEventListener("click", () => {
+  if (isGateOpen()) {
+    startApp();
+  } else {
+    showTopScreen("gate");
+    document.getElementById("passcode-input").focus();
+  }
+});
+
+document.getElementById("copy-new-room-invite-btn").addEventListener("click", () =>
+  copyText("new-room-invite-link", "copy-new-room-invite-btn")
+);
+
+async function copyText(sourceId, btnId) {
+  const source = document.getElementById(sourceId);
+  const text = "value" in source ? source.value : source.textContent;
+  if (source.select) source.select();
+  try {
+    await navigator.clipboard.writeText(text);
+    const btn = document.getElementById(btnId);
+    const original = btn.textContent;
+    btn.textContent = "コピーしました";
+    setTimeout(() => {
+      btn.textContent = original;
+    }, 1500);
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 // ---------- 合言葉ゲート ----------
@@ -78,19 +169,23 @@ function updateGateStatus() {
   }
 }
 
-onSnapshot(
-  passcodeDocRef,
-  (snap) => {
-    passcodeLoaded = true;
-    currentPasscode = snap.exists() ? snap.data().code : null;
-    updateGateStatus();
-  },
-  (err) => {
-    console.error(err);
-    passcodeLoaded = true;
-    document.getElementById("passcode-status").textContent = "合言葉の読み込みに失敗しました";
-  }
-);
+function subscribePasscode() {
+  if (passcodeUnsubscribe) passcodeUnsubscribe();
+  passcodeLoaded = false;
+  passcodeUnsubscribe = onSnapshot(
+    passcodeDocRef,
+    (snap) => {
+      passcodeLoaded = true;
+      currentPasscode = snap.exists() ? snap.data().code : null;
+      updateGateStatus();
+    },
+    (err) => {
+      console.error(err);
+      passcodeLoaded = true;
+      document.getElementById("passcode-status").textContent = "合言葉の読み込みに失敗しました";
+    }
+  );
+}
 
 document.getElementById("passcode-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -110,6 +205,49 @@ document.getElementById("logout-btn").addEventListener("click", () => {
   closeGate();
   firebaseSignOut();
   location.href = location.pathname;
+});
+
+document.getElementById("switch-project-btn").addEventListener("click", () => {
+  if (
+    !confirm(
+      "別の新しいチームを始めますか?現在の合言葉ログイン状態もリセットされます。参加したいチームがある場合は、このボタンではなくそのチームの招待リンクを開いてください。"
+    )
+  )
+    return;
+  clearRoomId();
+  closeGate();
+  location.href = location.pathname;
+});
+
+// ---------- 招待リンク(ゲート画面・ヘッダーから再表示) ----------
+
+document.getElementById("show-invite-btn").addEventListener("click", () => {
+  document.getElementById("gate-invite-link-text").value = buildInviteLink(roomId);
+  document.getElementById("gate-normal").classList.add("hidden");
+  document.getElementById("gate-invite").classList.remove("hidden");
+});
+
+document.getElementById("close-invite-btn").addEventListener("click", () => {
+  document.getElementById("gate-invite").classList.add("hidden");
+  document.getElementById("gate-normal").classList.remove("hidden");
+});
+
+document.getElementById("gate-copy-invite-btn").addEventListener("click", () =>
+  copyText("gate-invite-link-text", "gate-copy-invite-btn")
+);
+
+document.getElementById("header-invite-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("header-invite-btn");
+  try {
+    await navigator.clipboard.writeText(buildInviteLink(roomId));
+    const original = btn.textContent;
+    btn.textContent = "コピーしました";
+    setTimeout(() => {
+      btn.textContent = original;
+    }, 1500);
+  } catch (err) {
+    console.error(err);
+  }
 });
 
 // ---------- 合言葉の発行(管理者用) ----------
@@ -161,24 +299,12 @@ document.getElementById("generate-passcode-btn").addEventListener("click", async
   }
 });
 
-document.getElementById("copy-passcode-btn").addEventListener("click", async () => {
-  const text = document.getElementById("generated-passcode-text").textContent;
-  const btn = document.getElementById("copy-passcode-btn");
-  try {
-    await navigator.clipboard.writeText(text);
-    const original = btn.textContent;
-    btn.textContent = "コピーしました";
-    setTimeout(() => {
-      btn.textContent = original;
-    }, 1500);
-  } catch (err) {
-    console.error(err);
-  }
-});
+document.getElementById("copy-passcode-btn").addEventListener("click", () =>
+  copyText("generated-passcode-text", "copy-passcode-btn")
+);
 
 function startApp() {
-  document.getElementById("gate-screen").classList.add("hidden");
-  document.getElementById("app-screen").classList.remove("hidden");
+  showTopScreen("app");
   setLoading(true);
   ensureSignedIn()
     .then(subscribeReports)
@@ -364,7 +490,7 @@ async function handleDelete(r) {
   if (!confirm(`#${r.workCode} を削除しますか?`)) return;
   setLoading(true);
   try {
-    await deleteDoc(doc(db, "reports", r.id));
+    await deleteDoc(doc(db, "rooms", roomId, "reports", r.id));
     const url = new URL(location.href);
     url.searchParams.delete("code");
     history.replaceState(null, "", url);
@@ -502,7 +628,7 @@ document.getElementById("editor-form").addEventListener("submit", async (e) => {
   setLoading(true);
   try {
     if (editingId) {
-      await updateDoc(doc(db, "reports", editingId), {
+      await updateDoc(doc(db, "rooms", roomId, "reports", editingId), {
         title,
         body,
         author,
@@ -569,8 +695,4 @@ document.getElementById("image-modal").addEventListener("click", (e) => {
 
 // ---------- 初期化 ----------
 
-if (isGateOpen()) {
-  startApp();
-} else {
-  document.getElementById("passcode-input").focus();
-}
+boot();

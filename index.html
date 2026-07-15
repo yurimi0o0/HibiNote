@@ -8,7 +8,20 @@
 </head>
 <body>
 
-<div id="gate-screen" class="screen">
+<div id="new-room-screen" class="screen hidden">
+  <div class="gate-box">
+    <h1>HibiNote</h1>
+    <p>あなた専用の新しいチームができました。</p>
+    <div class="invite-link-box">
+      <input type="text" id="new-room-invite-link" readonly>
+      <button type="button" id="copy-new-room-invite-btn" class="btn">コピー</button>
+    </div>
+    <p class="hint-text">このリンクを開いた人だけが、このチームの報告を見たり投稿したりできます。友達に共有してください。合言葉は次の画面で発行できます。</p>
+    <button type="button" id="new-room-continue-btn" class="btn btn-primary">はじめる</button>
+  </div>
+</div>
+
+<div id="gate-screen" class="screen hidden">
   <div class="gate-box">
     <h1>HibiNote</h1>
 
@@ -22,6 +35,8 @@
       <p id="passcode-error" class="error-text" role="alert"></p>
       <p id="passcode-status" class="hint-text"></p>
       <button type="button" id="show-admin-btn" class="link-btn">管理者用: 合言葉を発行する</button>
+      <button type="button" id="show-invite-btn" class="link-btn">招待リンクを表示する</button>
+      <button type="button" id="switch-project-btn" class="link-btn">別のチームに切り替える</button>
     </div>
 
     <div id="gate-admin" class="hidden">
@@ -39,6 +54,15 @@
 
       <button type="button" id="close-admin-btn" class="btn btn-ghost">戻る</button>
     </div>
+
+    <div id="gate-invite" class="hidden">
+      <p>このチームの招待リンクです。共有すると同じチームに接続できます。</p>
+      <div class="invite-link-box">
+        <input type="text" id="gate-invite-link-text" readonly>
+        <button type="button" id="gate-copy-invite-btn" class="btn">コピー</button>
+      </div>
+      <button type="button" id="close-invite-btn" class="btn btn-ghost">戻る</button>
+    </div>
   </div>
 </div>
 
@@ -51,6 +75,7 @@
     </form>
     <div class="header-actions">
       <button id="new-report-btn" type="button" class="btn btn-primary">＋ 新規投稿</button>
+      <button id="header-invite-btn" type="button" class="btn btn-ghost">招待リンク</button>
       <button id="logout-btn" type="button" class="btn btn-ghost">ログアウト</button>
     </div>
   </header>

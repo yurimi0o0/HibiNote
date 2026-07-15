@@ -3,26 +3,38 @@
 ## 概要
 チーム向けの汎用的な作業日報共有サイト。学園祭に限らず、他のプロジェクト・団体でもそのまま使い回せるように作る。合言葉を知っている人なら誰でも閲覧・投稿できる、軽量なWebアプリ。過去の日報も一覧からいつでも遡って見られる。
 
+**マルチテナント設計**: リポジトリをforkしなくても、同じデプロイ済みサイト(同じURL)を無関係な複数のチームが同時に使い回せる。Firebaseプロジェクト自体はリポジトリ管理者が1つだけ用意し、コードに埋め込む。チームごとの区別・データ分離はFirestore上の「ルームID」(ランダムな文字列)で行う。**利用者は誰もFirebaseに触れる必要がない** — サイトを開くだけで自動的に新しいチーム(ルーム)が発行される(詳細は「チーム(ルーム)管理」章)。
+
 ## 技術スタック
 - フロントエンド: 素のHTML / CSS / JavaScript (フレームワーク不要、単一〜数ファイル構成)
-- バックエンド: Firebase (Firestore + Anonymous Auth)
+- バックエンド: Firebase (Firestore + Anonymous Auth)。プロジェクトはリポジトリ管理者が1つ用意し、コードに埋め込む(利用者側の設定作業は不要)
 - ホスティング: GitHub Pages
 - Markdown描画: marked.js (CDN) + DOMPurify (CDN) ※XSS対策として必須、これを外さない
 - 画像: Firestoreにcanvas圧縮したBase64文字列として保存 (Firebase Storageは使わない)
+
+## チーム(ルーム)管理(マルチテナント化)
+- Firebaseプロジェクトはコードに埋め込む(`js/firebase-config.js`)。全チーム共通の1つのプロジェクトを、Firestore上の名前空間(`rooms/{roomId}/...`)で分離して共有する
+- 初回アクセス時、`localStorage` にルームIDが保存されていなければ、`crypto.getRandomValues` でランダムなルームID(英数字10文字程度)をその場で自動生成し、`localStorage` に保存する(ユーザー操作は一切不要)
+  - 生成直後は「あなた専用の新しいチームができました」画面を表示し、招待リンク(`index.html?room=<ルームID>`)を提示する。「はじめる」で合言葉画面へ進む
+- **招待リンク**: `?room=<ルームID>` を開くと、そのルームIDが即座に`localStorage`へ保存され(貼り付け作業なし)、URLパラメータは履歴から取り除かれる
+  - 招待リンクは合言葉ゲート画面・アプリのヘッダーからもいつでも再表示・コピーできるようにする
+- 合言葉ゲート画面に「別のチームに切り替える」リンクを置き、押すと確認の上で保存済みのルームIDと合言葉ログイン状態をクリアして再読み込みする(再読み込み時に新しいルームIDが自動発行される)
+- 招待リンクを開いた際、既に別のルームIDが保存されていて内容が異なる場合は上書き前に確認を取る(誤って別チームのデータに繋がってしまうのを防ぐ)
+- 各チームが完全に独立したFirebaseプロジェクトを持ちたい場合(データを自社の課金・クォータで管理したい等)は、リポジトリをforkして `js/firebase-config.js` を書き換える(コード改変が必要な上級者向けの逃げ道として明記するのみでよい)
 
 ## 認証まわり
 - **アカウント登録なし。** 初回アクセス時に「合言葉入力画面」を出す。
 - 合言葉が正しければ:
   1. `localStorage` に合言葉一致フラグを保存(以降スキップ)
   2. 裏側でFirebase Anonymous Authを自動実行(ユーザー操作不要、見た目に一切出さない)
-- **合言葉は8桁のランダムな数字**(例: `04382891` のような、連番でなくランダム生成された文字列)。サイトを新しく立ち上げる(新チーム・新プロジェクトで使い回す)たびに管理者がサイト上のUIから発行し直す
-  - 合言葉入力画面に「管理者用: 合言葉を発行する」というリンクを設置する。押すと `crypto.getRandomValues` で8桁のランダム数字を生成し、Firestore(`settings/passcode` ドキュメント)に書き込む
-  - Node.jsスクリプトの実行や `config.js` の書き換え・再デプロイは不要。発行はサイト上で完結する
+- **合言葉は8桁のランダムな数字**(例: `04382891` のような、連番でなくランダム生成された文字列)。チーム(ルーム)ごとに独立しており、そのチームの管理者がサイト上のUIから発行する
+  - 合言葉入力画面に「管理者用: 合言葉を発行する」というリンクを設置する。押すと `crypto.getRandomValues` で8桁のランダム数字を生成し、Firestore(`rooms/{roomId}/settings/passcode` ドキュメント)に書き込む
+  - Node.jsスクリプトの実行やコードの書き換え・再デプロイは不要。発行はサイト上で完結する
   - 発行直後の画面にのみ一度だけ表示される。通常の合言葉入力画面や他のどの画面にも表示しない。管理者はその場でコピーしてチームメンバーに個別共有する
   - 001のような連番・推測しやすい値にはしない
 - Firestoreセキュリティルール
-  - `settings/passcode`: 読み取りは誰でも可(合言葉ゲート自体が認証前に判定できるようにするため)、書き込み(発行)は認証済み(Anonymous含む)のみ
-  - `reports/*`: 認証済み(Anonymous含む)なら読み書き可
+  - `rooms/{roomId}/settings/passcode`: 読み取りは誰でも可(合言葉ゲート自体が認証前に判定できるようにするため)、書き込み(発行)は認証済み(Anonymous含む)のみ
+  - `rooms/{roomId}/reports/*`: 認証済み(Anonymous含む)なら読み書き可
 
 ### ログアウト機能
 - ヘッダーに「ログアウト」ボタンを常設
@@ -35,11 +47,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /settings/passcode {
+    match /rooms/{roomId}/settings/passcode {
       allow read: if true;
       allow write: if request.auth != null;
     }
-    match /reports/{reportId} {
+    match /rooms/{roomId}/reports/{reportId} {
       allow read, write: if request.auth != null;
     }
   }
@@ -48,19 +60,21 @@ service cloud.firestore {
 
 ## データモデル
 
-### `settings/passcode` ドキュメント(1件のみ)
+すべて `rooms/{roomId}/...` の下に配置し、チームごとに完全に分離する。`roomId` はクライアント側で生成するランダム文字列で、URLの `?room=` パラメータや招待リンクとして共有される。
+
+### `rooms/{roomId}/settings/passcode` ドキュメント(ルームごとに1件)
 
 ```
-settings/passcode
+rooms/{roomId}/settings/passcode
   code: string        現在有効な8桁の合言葉
   updatedAt: timestamp
 ```
 
-### `reports` コレクション
+### `rooms/{roomId}/reports` コレクション
 
 ```
-reports/{reportId}
-  workCode: string    例 "0001" (通し連番、数字のみ)
+rooms/{roomId}/reports/{reportId}
+  workCode: string    例 "0001" (通し連番、数字のみ、ルーム内で共通)
   date: string        例 "2026-07-15" (YYYY-MM-DD)
   title: string
   body: string         Markdown形式の本文
@@ -79,9 +93,14 @@ reports/{reportId}
 
 ## 画面構成
 
-### 1. 合言葉入力画面(初回のみ)
+### 0. 新規チーム作成画面(そのブラウザで初回のみ、または招待リンクで自動スキップ)
+- ルームIDは何も操作せずその場で自動生成される。この画面では招待リンクの表示+コピーボタンのみ
+- 「はじめる」で合言葉画面(または既にログイン済みならメイン画面)に進む
+
+### 1. 合言葉入力画面(ルーム決定後に表示)
 - シンプルな1入力+ボタン
 - 間違い時はエラー表示、正解でメイン画面へ遷移
+- 「管理者用: 合言葉を発行する」「招待リンクを表示する」「別のチームに切り替える」の3つのリンクを併設
 
 ### 2. 一覧画面(トップ)
 - 日付ごとにグルーピングして新しい順に表示(例: 見出し `7/15(火)` の下にその日の報告カードが並ぶ)
@@ -116,18 +135,17 @@ reports/{reportId}
 - 画像アップロードは `<input type="file" accept="image/*" capture>` でカメラ起動も考慮
 
 ## 実装順序の推奨
-1. Firebase プロジェクト作成(Firestore + Anonymous Auth有効化)
-2. 合言葉ゲート + Anonymous Auth実装
-3. Firestore CRUD(投稿・一覧取得)
-4. 一覧画面(日付グルーピング)
-5. 詳細画面(Markdown描画)
-6. 投稿・編集画面(画像圧縮込み)
-7. 作業コード検索・直リンク機能
-8. GitHub Pagesデプロイ設定
+1. Firebaseの初期化(`js/firebase-config.js` に埋め込み済みのプロジェクトでinitializeApp)
+2. ルームID自動生成・localStorage保存・招待リンク発行(新規チーム作成画面)
+3. 合言葉ゲート + Anonymous Auth実装(Firestore上の合言葉発行UIを含む)
+4. Firestore CRUD(投稿・一覧取得、すべて `rooms/{roomId}/...` 配下)
+5. 一覧画面(日付グルーピング)
+6. 詳細画面(Markdown描画)
+7. 投稿・編集画面(画像圧縮込み)
+8. 作業コード検索・直リンク機能
+9. GitHub Pagesデプロイ設定
 
 ## Firebaseプロジェクトについて
-- **新規プロジェクトを作成する。** 既存(study-weight等)とは分離する。無料のSparkプランで今回の要件は全て賄える(Firestore + Anonymous Authは無料枠内、Storageは使わない設計のため課金の心配なし)
-- Firebaseコンソールで新規プロジェクト作成 → Firestore Database有効化 → Authenticationで「匿名」を有効化、の3ステップで準備完了
-
-## 未決事項(実装時に確認 or 仮決めして進めてOK)
-- アプリ名(下記候補から選択、または別案)
+- **リポジトリ管理者が1つだけFirebaseプロジェクトを作成し、コード(`js/firebase-config.js`)に埋め込む。** 利用者(チームの管理者・メンバー)は誰もFirebaseに触れる必要がない
+- 無料のSparkプランで要件は全て賄える(Firestore + Anonymous Authは無料枠内、Storageは使わない設計のため課金の心配なし)。多数のチームが同じプロジェクトを共有する前提のため、利用規模が大きくなる場合は無料枠の上限に注意する
+- 準備手順(管理者が最初に1回だけ): Firebaseコンソールで新規プロジェクト作成 → Firestore Database有効化(ルールは本ファイル記載のものを適用) → Authenticationで「匿名」を有効化 → マイアプリでウェブアプリを追加して設定を取得し `js/firebase-config.js` に貼り付け、の4ステップ
