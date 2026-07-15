@@ -21,6 +21,9 @@ import {
 } from "./project.js";
 import { compressImage } from "./image.js";
 
+// main.jsの読み込み・評価がここまで到達した = 通信/構文エラーで詰んではいない
+if (window.__hibinoteBootTimer) clearTimeout(window.__hibinoteBootTimer);
+
 const PASSCODE_KEY = "hibinote_passcode_ok";
 const AUTHOR_KEY = "hibinote_author";
 const MAX_DOC_SIZE = 900_000; // Firestore 1ドキュメント上限(1MB)に対する安全マージン
@@ -56,6 +59,7 @@ function showView(name) {
 }
 
 function showTopScreen(name) {
+  document.getElementById("boot-loading").classList.add("hidden");
   document.getElementById("new-room-screen").classList.toggle("hidden", name !== "newroom");
   document.getElementById("gate-screen").classList.toggle("hidden", name !== "gate");
   document.getElementById("app-screen").classList.toggle("hidden", name !== "app");

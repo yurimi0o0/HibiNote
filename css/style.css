@@ -27,9 +27,9 @@ body {
   display: none !important;
 }
 
-/* ---------- gate ---------- */
+/* ---------- gate-style centered screens ---------- */
 
-#gate-screen {
+.centered-screen {
   min-height: 100vh;
   display: flex;
   align-items: center;
