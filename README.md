@@ -1,1 +1,1 @@
-# gamesetting
+# HibiNote
