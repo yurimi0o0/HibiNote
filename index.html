@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HibiNote</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="gate-screen" class="screen">
+  <div class="gate-box">
+    <h1>HibiNote</h1>
+    <p>合言葉を入力してください</p>
+    <form id="passcode-form" autocomplete="off">
+      <input type="text" id="passcode-input" inputmode="numeric" pattern="[0-9]*" maxlength="8"
+             autocomplete="off" placeholder="8桁の合言葉" required>
+      <button type="submit" class="btn btn-primary">入室する</button>
+    </form>
+    <p id="passcode-error" class="error-text" role="alert"></p>
+  </div>
+</div>
+
+<div id="app-screen" class="screen hidden">
+  <header class="app-header">
+    <h1 class="app-title">HibiNote</h1>
+    <form id="search-form" class="search-form">
+      <input type="text" id="search-input" inputmode="numeric" placeholder="作業コードで検索 (例: 0001)">
+      <button type="submit" class="btn btn-icon" aria-label="検索">🔍</button>
+    </form>
+    <div class="header-actions">
+      <button id="new-report-btn" type="button" class="btn btn-primary">＋ 新規投稿</button>
+      <button id="logout-btn" type="button" class="btn btn-ghost">ログアウト</button>
+    </div>
+  </header>
+
+  <main id="list-view" class="view">
+    <div id="report-groups"></div>
+    <p id="empty-message" class="empty-message hidden">まだ報告がありません</p>
+  </main>
+
+  <main id="detail-view" class="view hidden">
+    <button type="button" class="back-btn" data-back="list">← 一覧へ戻る</button>
+    <article class="detail-card">
+      <div class="detail-meta">
+        <span id="detail-code" class="code-badge"></span>
+        <span id="detail-date"></span>
+      </div>
+      <h2 id="detail-title"></h2>
+      <p class="detail-author">投稿者: <span id="detail-author"></span></p>
+      <div id="detail-body" class="markdown-body"></div>
+      <div id="detail-images" class="image-grid"></div>
+      <div class="detail-actions">
+        <button id="edit-report-btn" type="button" class="btn">編集</button>
+        <button id="delete-report-btn" type="button" class="btn btn-danger">削除</button>
+      </div>
+    </article>
+  </main>
+
+  <main id="editor-view" class="view hidden">
+    <button type="button" class="back-btn" data-back="prev">← 戻る</button>
+    <h2 id="editor-heading">新規投稿</h2>
+    <form id="editor-form">
+      <label>投稿者名
+        <input type="text" id="editor-author" required>
+      </label>
+      <label>タイトル
+        <input type="text" id="editor-title" required>
+      </label>
+      <label>本文 (Markdown)
+        <textarea id="editor-body" rows="10" required></textarea>
+      </label>
+      <div class="preview-label">プレビュー</div>
+      <div id="editor-preview" class="markdown-body preview-box"></div>
+      <label>画像
+        <input type="file" id="editor-images-input" accept="image/*" capture="environment" multiple>
+      </label>
+      <div id="editor-image-list" class="image-thumb-list"></div>
+      <p id="editor-error" class="error-text" role="alert"></p>
+      <div class="editor-actions">
+        <button type="submit" class="btn btn-primary" id="editor-save-btn">保存</button>
+        <button type="button" class="btn btn-ghost" id="editor-cancel-btn">キャンセル</button>
+      </div>
+    </form>
+  </main>
+</div>
+
+<div id="image-modal" class="modal hidden">
+  <button id="image-modal-close" type="button" class="modal-close" aria-label="閉じる">✕</button>
+  <img id="image-modal-img" src="" alt="拡大画像">
+</div>
+
+<div id="loading-overlay" class="loading-overlay hidden">
+  <div class="spinner"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

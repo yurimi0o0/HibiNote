@@ -1,1 +1,57 @@
 # HibiNote
+
+チーム向けの軽量な作業日報共有サイト。合言葉を知っている人なら誰でも閲覧・投稿できます。
+アカウント登録不要、Firebase (Firestore + Anonymous Auth) + GitHub Pages で動作します。
+
+詳しい仕様は [CLAUDE.md](./CLAUDE.md) を参照してください。
+
+## セットアップ
+
+### 1. Firebaseプロジェクトを作成
+
+1. [Firebaseコンソール](https://console.firebase.google.com/)で新規プロジェクトを作成
+2. 「Firestore Database」を有効化(本番モードでOK、後述のルールを適用)
+3. 「Authentication」→ Sign-in method で「匿名」を有効化
+4. プロジェクト設定 > 全般 > マイアプリ で ウェブアプリを追加し、`firebaseConfig` の値を取得
+
+### 2. 設定ファイルを埋める
+
+`js/config.js` の `FIREBASE_CONFIG` に、取得した値を貼り付けます。
+
+### 3. 合言葉を発行する
+
+```sh
+node generate-passcode.js
+```
+
+`js/config.js` の `PASSCODE` がランダムな8桁の数字に書き換わり、発行された合言葉がコンソールに表示されます。
+このコードはサイト上には表示されないので、管理者がチームメンバーに個別に共有してください。
+新しいチーム・プロジェクトで使い回す際は、このスクリプトを再実行して合言葉を発行し直してください。
+
+### 4. Firestoreセキュリティルールを設定
+
+Firebaseコンソールの Firestore > ルール に `firestore.rules` の内容を貼り付けて公開します。
+
+### 5. GitHub Pagesでデプロイ
+
+このリポジトリの Settings > Pages で、公開ブランチ(例: `main`)とルートディレクトリを指定して有効化します。
+ビルド手順は不要で、静的ファイルがそのまま配信されます。
+
+## 使い方
+
+- 初回アクセス時に合言葉を入力すると、以降はその端末では自動的にログインされます
+- ヘッダーの「ログアウト」ボタンで合言葉ロックに戻せます(端末共有時や別チームへの切り替え用)
+- 投稿は自動で作業コード(`0001`など)が採番されます。ヘッダーの検索窓に数字を入力すると該当の投稿にジャンプでき、`index.html?code=0001` の形式で直リンクも可能です
+
+## ファイル構成
+
+```
+index.html          画面全体(合言葉ゲート/一覧/詳細/投稿・編集)
+css/style.css        スタイル
+js/config.js          Firebase設定 + 合言葉(セットアップ時に書き換え)
+js/firebase.js        Firebase初期化・匿名認証
+js/image.js           画像のcanvas圧縮
+js/main.js            アプリ本体のロジック
+generate-passcode.js  合言葉発行スクリプト
+firestore.rules       Firestoreセキュリティルール
+```
