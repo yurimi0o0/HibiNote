@@ -47,6 +47,7 @@ const views = {
   list: document.getElementById("list-view"),
   detail: document.getElementById("detail-view"),
   editor: document.getElementById("editor-view"),
+  teaminfo: document.getElementById("team-info-view"),
 };
 
 function showView(name) {
@@ -198,15 +199,19 @@ function closeGate() {
 function updateGateStatus() {
   const statusEl = document.getElementById("passcode-status");
   const submitBtn = document.querySelector("#passcode-form button[type=submit]");
+  const issueBtn = document.getElementById("issue-first-passcode-btn");
   if (!passcodeLoaded) {
     statusEl.textContent = "読み込み中...";
     submitBtn.disabled = true;
+    issueBtn.classList.add("hidden");
   } else if (!currentPasscode) {
-    statusEl.textContent = "まだ合言葉が発行されていません。下の「招待リンク・合言葉を確認する」から発行してください。";
+    statusEl.textContent = "まだ合言葉が発行されていません。このチームを作った人は下のボタンから発行してください。";
     submitBtn.disabled = true;
+    issueBtn.classList.remove("hidden");
   } else {
     statusEl.textContent = "";
     submitBtn.disabled = false;
+    issueBtn.classList.add("hidden");
   }
 }
 
@@ -227,7 +232,7 @@ function subscribePasscode() {
       passcodeLoaded = true;
       currentPasscode = snap.exists() ? snap.data().code : null;
       updateGateStatus();
-      updateCurrentPasscodeDisplay();
+      updateAppPasscodeDisplay();
     },
     (err) => {
       clearTimeout(timeoutId);
@@ -270,16 +275,32 @@ document.getElementById("switch-project-btn").addEventListener("click", () => {
   location.href = location.pathname;
 });
 
-// ---------- 招待リンク・合言葉(ゲート画面・ヘッダーから確認/再発行) ----------
+// このチームにまだ合言葉が無い場合だけ表示される初回発行ボタン。
+// 保護すべきものがまだ何も無い状態なので、ゲート画面から直接発行できてもセキュリティ上問題ない。
+document.getElementById("issue-first-passcode-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("issue-first-passcode-btn");
+  btn.disabled = true;
+  try {
+    await withTimeout(ensureSignedIn(), 10000);
+    const code = generateRandomPasscode();
+    await setDoc(passcodeDocRef, { code, updatedAt: serverTimestamp() });
+    alert(
+      `合言葉を発行しました: ${code}\nチームメンバーに共有してください(あとでヘッダーの「招待リンク」からも確認できます)。`
+    );
+    openGate();
+    startApp();
+  } catch (err) {
+    console.error(err);
+    alert("合言葉の発行に失敗しました。通信環境を確認してください");
+  } finally {
+    btn.disabled = false;
+  }
+});
 
-function updateCurrentPasscodeDisplay() {
-  const el = document.getElementById("current-passcode-text");
-  if (el) el.textContent = currentPasscode || "(未発行)";
-}
+// ---------- 招待リンク(ゲート画面から確認、合言葉ゲート通過前なので合言葉自体は出さない) ----------
 
 document.getElementById("show-invite-btn").addEventListener("click", () => {
   document.getElementById("gate-invite-link-text").value = buildInviteLink(roomId);
-  updateCurrentPasscodeDisplay();
   document.getElementById("gate-normal").classList.add("hidden");
   document.getElementById("gate-invite").classList.remove("hidden");
 });
@@ -293,23 +314,27 @@ document.getElementById("gate-copy-invite-btn").addEventListener("click", () =>
   copyText("gate-invite-link-text", "gate-copy-invite-btn")
 );
 
-document.getElementById("copy-current-passcode-btn").addEventListener("click", () =>
-  copyText("current-passcode-text", "copy-current-passcode-btn")
+// ---------- 招待リンク・合言葉(ログイン後のヘッダーから確認/再発行) ----------
+
+function updateAppPasscodeDisplay() {
+  const el = document.getElementById("app-current-passcode-text");
+  if (el) el.textContent = currentPasscode || "(未発行)";
+}
+
+document.getElementById("header-invite-btn").addEventListener("click", () => {
+  document.getElementById("app-invite-link-text").value = buildInviteLink(roomId);
+  updateAppPasscodeDisplay();
+  previousView = activeView === "teaminfo" ? previousView : activeView;
+  showView("teaminfo");
+});
+
+document.getElementById("app-copy-invite-btn").addEventListener("click", () =>
+  copyText("app-invite-link-text", "app-copy-invite-btn")
 );
 
-document.getElementById("header-invite-btn").addEventListener("click", async () => {
-  const btn = document.getElementById("header-invite-btn");
-  try {
-    await navigator.clipboard.writeText(buildInviteLink(roomId));
-    const original = btn.textContent;
-    btn.textContent = "コピーしました";
-    setTimeout(() => {
-      btn.textContent = original;
-    }, 1500);
-  } catch (err) {
-    console.error(err);
-  }
-});
+document.getElementById("app-copy-passcode-btn").addEventListener("click", () =>
+  copyText("app-current-passcode-text", "app-copy-passcode-btn")
+);
 
 function isTooSimplePasscode(code) {
   const digits = code.split("");
@@ -330,8 +355,8 @@ function generateRandomPasscode() {
   return code;
 }
 
-document.getElementById("reissue-passcode-btn").addEventListener("click", async () => {
-  const btn = document.getElementById("reissue-passcode-btn");
+document.getElementById("app-reissue-passcode-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("app-reissue-passcode-btn");
   btn.disabled = true;
   try {
     await withTimeout(ensureSignedIn(), 10000);
