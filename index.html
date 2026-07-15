@@ -35,6 +35,20 @@
   <div class="spinner"></div>
 </div>
 
+<div id="welcome-screen" class="centered-screen hidden">
+  <div class="gate-box">
+    <h1>HibiNote</h1>
+    <p>チームの招待リンクを持っている場合は、貼り付けて参加してください。</p>
+    <label>招待リンクを貼り付け
+      <input type="text" id="welcome-join-input" placeholder="https://.../?room=xxxxxxxxxx">
+    </label>
+    <p id="welcome-join-error" class="error-text" role="alert"></p>
+    <button type="button" id="welcome-join-btn" class="btn btn-primary">参加する</button>
+
+    <button type="button" id="welcome-create-btn" class="link-btn">招待リンクを持っていない場合: 新しくチームを作る</button>
+  </div>
+</div>
+
 <div id="new-room-screen" class="centered-screen hidden">
   <div class="gate-box">
     <h1>HibiNote</h1>
