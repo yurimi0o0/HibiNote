@@ -64,14 +64,42 @@ body {
 }
 
 .link-btn {
+  display: block;
+  width: 100%;
   background: none;
   border: none;
   color: var(--color-primary-dark);
   font-size: 0.85rem;
   cursor: pointer;
-  margin-top: 18px;
+  margin-top: 10px;
   text-decoration: underline;
-  min-height: 44px;
+  min-height: 36px;
+}
+
+.invite-link-box {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.invite-link-box input {
+  flex: 1;
+  font-size: 0.8rem;
+}
+
+#setup-form-box label {
+  text-align: left;
+}
+
+#setup-config-input {
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+#setup-invite-box .btn,
+#setup-form-box #setup-save-btn {
+  width: 100%;
+  margin-top: 10px;
 }
 
 .hint-text {

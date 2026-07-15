@@ -10,15 +10,26 @@ import {
   orderBy,
   query,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { db, ensureSignedIn, firebaseSignOut } from "./firebase.js";
+import { initFirebase, ensureSignedIn, firebaseSignOut } from "./firebase.js";
+import {
+  loadSavedConfig,
+  saveConfig,
+  clearConfig,
+  validateConfig,
+  parseFirebaseConfigSnippet,
+  encodeInviteLink,
+  decodeSetupParam,
+} from "./project.js";
 import { compressImage } from "./image.js";
 
 const PASSCODE_KEY = "hibinote_passcode_ok";
 const AUTHOR_KEY = "hibinote_author";
 const MAX_DOC_SIZE = 900_000; // Firestore 1ドキュメント上限(1MB)に対する安全マージン
 
-const reportsCol = collection(db, "reports");
-const passcodeDocRef = doc(db, "settings", "passcode");
+let db = null;
+let reportsCol = null;
+let passcodeDocRef = null;
+let passcodeUnsubscribe = null;
 
 let currentPasscode = null;
 let passcodeLoaded = false;
@@ -45,8 +56,114 @@ function showView(name) {
   activeView = name;
 }
 
+function showTopScreen(name) {
+  document.getElementById("setup-screen").classList.toggle("hidden", name !== "setup");
+  document.getElementById("gate-screen").classList.toggle("hidden", name !== "gate");
+  document.getElementById("app-screen").classList.toggle("hidden", name !== "app");
+}
+
 function setLoading(isLoading) {
   document.getElementById("loading-overlay").classList.toggle("hidden", !isLoading);
+}
+
+// ---------- プロジェクト設定(Firebase接続先) ----------
+
+function boot() {
+  const params = new URLSearchParams(location.search);
+  const setupParam = params.get("setup");
+  if (setupParam) {
+    const url = new URL(location.href);
+    url.searchParams.delete("setup");
+    history.replaceState(null, "", url);
+
+    const decoded = decodeSetupParam(setupParam);
+    if (decoded) {
+      const existing = loadSavedConfig();
+      const isDifferent = existing && JSON.stringify(existing) !== JSON.stringify(decoded);
+      if (
+        !existing ||
+        !isDifferent ||
+        confirm("招待リンクのプロジェクトに切り替えますか?(現在の合言葉ログイン状態はリセットされます)")
+      ) {
+        if (isDifferent) closeGate();
+        saveConfig(decoded);
+      }
+    }
+  }
+
+  const config = loadSavedConfig();
+  if (config) {
+    launchWithConfig(config);
+  } else {
+    showTopScreen("setup");
+  }
+}
+
+function launchWithConfig(config) {
+  db = initFirebase(config);
+  reportsCol = collection(db, "reports");
+  passcodeDocRef = doc(db, "settings", "passcode");
+  subscribePasscode();
+
+  if (isGateOpen()) {
+    startApp();
+  } else {
+    showTopScreen("gate");
+    document.getElementById("passcode-input").focus();
+  }
+}
+
+document.getElementById("setup-save-btn").addEventListener("click", () => {
+  const text = document.getElementById("setup-config-input").value.trim();
+  const errorEl = document.getElementById("setup-error");
+  errorEl.textContent = "";
+
+  if (!text) {
+    errorEl.textContent = "Firebaseの設定を貼り付けてください";
+    return;
+  }
+
+  let config;
+  try {
+    config = JSON.parse(text);
+  } catch {
+    config = parseFirebaseConfigSnippet(text);
+  }
+
+  if (!validateConfig(config)) {
+    errorEl.textContent = "設定を読み取れませんでした。Firebaseコンソールのコードをそのまま貼り付けてください";
+    return;
+  }
+
+  saveConfig(config);
+  document.getElementById("invite-link-text").value = encodeInviteLink(config);
+  document.getElementById("setup-form-box").classList.add("hidden");
+  document.getElementById("setup-invite-box").classList.remove("hidden");
+});
+
+document.getElementById("copy-invite-btn").addEventListener("click", () =>
+  copyText("invite-link-text", "copy-invite-btn")
+);
+
+document.getElementById("setup-continue-btn").addEventListener("click", () => {
+  launchWithConfig(loadSavedConfig());
+});
+
+async function copyText(sourceId, btnId) {
+  const source = document.getElementById(sourceId);
+  const text = "value" in source ? source.value : source.textContent;
+  if (source.select) source.select();
+  try {
+    await navigator.clipboard.writeText(text);
+    const btn = document.getElementById(btnId);
+    const original = btn.textContent;
+    btn.textContent = "コピーしました";
+    setTimeout(() => {
+      btn.textContent = original;
+    }, 1500);
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 // ---------- 合言葉ゲート ----------
@@ -78,19 +195,23 @@ function updateGateStatus() {
   }
 }
 
-onSnapshot(
-  passcodeDocRef,
-  (snap) => {
-    passcodeLoaded = true;
-    currentPasscode = snap.exists() ? snap.data().code : null;
-    updateGateStatus();
-  },
-  (err) => {
-    console.error(err);
-    passcodeLoaded = true;
-    document.getElementById("passcode-status").textContent = "合言葉の読み込みに失敗しました";
-  }
-);
+function subscribePasscode() {
+  if (passcodeUnsubscribe) passcodeUnsubscribe();
+  passcodeLoaded = false;
+  passcodeUnsubscribe = onSnapshot(
+    passcodeDocRef,
+    (snap) => {
+      passcodeLoaded = true;
+      currentPasscode = snap.exists() ? snap.data().code : null;
+      updateGateStatus();
+    },
+    (err) => {
+      console.error(err);
+      passcodeLoaded = true;
+      document.getElementById("passcode-status").textContent = "合言葉の読み込みに失敗しました";
+    }
+  );
+}
 
 document.getElementById("passcode-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -110,6 +231,48 @@ document.getElementById("logout-btn").addEventListener("click", () => {
   closeGate();
   firebaseSignOut();
   location.href = location.pathname;
+});
+
+document.getElementById("switch-project-btn").addEventListener("click", () => {
+  if (!confirm("別のプロジェクトに切り替えますか?現在の合言葉ログイン状態もリセットされます。")) return;
+  clearConfig();
+  closeGate();
+  location.href = location.pathname;
+});
+
+// ---------- 招待リンク(ゲート画面から再表示) ----------
+
+document.getElementById("show-invite-btn").addEventListener("click", () => {
+  const config = loadSavedConfig();
+  if (!config) return;
+  document.getElementById("gate-invite-link-text").value = encodeInviteLink(config);
+  document.getElementById("gate-normal").classList.add("hidden");
+  document.getElementById("gate-invite").classList.remove("hidden");
+});
+
+document.getElementById("close-invite-btn").addEventListener("click", () => {
+  document.getElementById("gate-invite").classList.add("hidden");
+  document.getElementById("gate-normal").classList.remove("hidden");
+});
+
+document.getElementById("gate-copy-invite-btn").addEventListener("click", () =>
+  copyText("gate-invite-link-text", "gate-copy-invite-btn")
+);
+
+document.getElementById("header-invite-btn").addEventListener("click", async () => {
+  const config = loadSavedConfig();
+  if (!config) return;
+  const btn = document.getElementById("header-invite-btn");
+  try {
+    await navigator.clipboard.writeText(encodeInviteLink(config));
+    const original = btn.textContent;
+    btn.textContent = "コピーしました";
+    setTimeout(() => {
+      btn.textContent = original;
+    }, 1500);
+  } catch (err) {
+    console.error(err);
+  }
 });
 
 // ---------- 合言葉の発行(管理者用) ----------
@@ -161,24 +324,12 @@ document.getElementById("generate-passcode-btn").addEventListener("click", async
   }
 });
 
-document.getElementById("copy-passcode-btn").addEventListener("click", async () => {
-  const text = document.getElementById("generated-passcode-text").textContent;
-  const btn = document.getElementById("copy-passcode-btn");
-  try {
-    await navigator.clipboard.writeText(text);
-    const original = btn.textContent;
-    btn.textContent = "コピーしました";
-    setTimeout(() => {
-      btn.textContent = original;
-    }, 1500);
-  } catch (err) {
-    console.error(err);
-  }
-});
+document.getElementById("copy-passcode-btn").addEventListener("click", () =>
+  copyText("generated-passcode-text", "copy-passcode-btn")
+);
 
 function startApp() {
-  document.getElementById("gate-screen").classList.add("hidden");
-  document.getElementById("app-screen").classList.remove("hidden");
+  showTopScreen("app");
   setLoading(true);
   ensureSignedIn()
     .then(subscribeReports)
@@ -569,8 +720,4 @@ document.getElementById("image-modal").addEventListener("click", (e) => {
 
 // ---------- 初期化 ----------
 
-if (isGateOpen()) {
-  startApp();
-} else {
-  document.getElementById("passcode-input").focus();
-}
+boot();
