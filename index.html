@@ -8,7 +8,33 @@
 </head>
 <body>
 
-<div id="new-room-screen" class="screen hidden">
+<script>
+  // main.js の読み込み・実行に失敗した場合(通信不良など)のセーフティネット。
+  // 画面がずっと真っ白になるのを防ぎ、再読み込みを促す。
+  window.__hibinoteBootTimer = setTimeout(function () {
+    var el = document.getElementById("boot-error");
+    if (el) el.classList.remove("hidden");
+  }, 8000);
+  window.addEventListener("error", function () {
+    clearTimeout(window.__hibinoteBootTimer);
+    var el = document.getElementById("boot-error");
+    if (el) el.classList.remove("hidden");
+  });
+</script>
+
+<div id="boot-error" class="centered-screen hidden">
+  <div class="gate-box">
+    <h1>HibiNote</h1>
+    <p>読み込みに失敗しました。通信状況をご確認のうえ、再読み込みしてください。</p>
+    <button type="button" class="btn btn-primary" onclick="location.reload()">再読み込み</button>
+  </div>
+</div>
+
+<div id="boot-loading" class="centered-screen">
+  <div class="spinner"></div>
+</div>
+
+<div id="new-room-screen" class="centered-screen hidden">
   <div class="gate-box">
     <h1>HibiNote</h1>
     <p>あなた専用の新しいチームができました。</p>
@@ -21,7 +47,7 @@
   </div>
 </div>
 
-<div id="gate-screen" class="screen hidden">
+<div id="gate-screen" class="centered-screen hidden">
   <div class="gate-box">
     <h1>HibiNote</h1>
 
@@ -66,7 +92,7 @@
   </div>
 </div>
 
-<div id="app-screen" class="screen hidden">
+<div id="app-screen" class="hidden">
   <header class="app-header">
     <h1 class="app-title">HibiNote</h1>
     <form id="search-form" class="search-form">
