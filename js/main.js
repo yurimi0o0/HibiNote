@@ -579,10 +579,9 @@ function updatePreview() {
   );
 }
 
-document.getElementById("editor-images-input").addEventListener("change", async (e) => {
-  const files = Array.from(e.target.files || []);
-  e.target.value = "";
+async function addImageFiles(files) {
   for (const file of files) {
+    if (!file.type.startsWith("image/")) continue;
     try {
       const dataUrl = await compressImage(file);
       pendingImages.push(dataUrl);
@@ -591,6 +590,23 @@ document.getElementById("editor-images-input").addEventListener("change", async 
     }
   }
   renderImageThumbs();
+}
+
+document.getElementById("editor-images-input").addEventListener("change", async (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = "";
+  await addImageFiles(files);
+});
+
+document.getElementById("editor-view").addEventListener("paste", async (e) => {
+  const items = e.clipboardData ? Array.from(e.clipboardData.items) : [];
+  const files = items
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter(Boolean);
+  if (files.length === 0) return; // 通常のテキスト貼り付けはそのまま
+  e.preventDefault();
+  await addImageFiles(files);
 });
 
 function renderImageThumbs() {
