@@ -1,12 +1,9 @@
-// Firebaseコンソール > プロジェクト設定 > 全般 > マイアプリ から取得した値を貼り付けてください
+// Firebaseコンソール > プロジェクト設定 > 全般 > マイアプリ から取得した値
 export const FIREBASE_CONFIG = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID",
+  apiKey: "AIzaSyDeAKKlud7u3KXKCI679jrQvupJXOsUATc",
+  authDomain: "hibinote-6e3af.firebaseapp.com",
+  projectId: "hibinote-6e3af",
+  storageBucket: "hibinote-6e3af.firebasestorage.app",
+  messagingSenderId: "423921315920",
+  appId: "1:423921315920:web:8e2312137503c325ffe155",
 };
-
-// node generate-passcode.js で自動生成される8桁の合言葉(このファイルの値が上書きされます)
-export const PASSCODE = "00000000";

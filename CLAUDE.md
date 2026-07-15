@@ -15,11 +15,14 @@
 - 合言葉が正しければ:
   1. `localStorage` に合言葉一致フラグを保存(以降スキップ)
   2. 裏側でFirebase Anonymous Authを自動実行(ユーザー操作不要、見た目に一切出さない)
-- **合言葉は8桁のランダムな数字**(例: `04382891` のような、連番でなくランダム生成された文字列)。サイトを新しく立ち上げる(新チーム・新プロジェクトで使い回す)たびに自動発行する
-  - セットアップ時に一度だけ実行するスクリプト(`generate-passcode.js` 的なもの)を用意し、`crypto.getRandomValues` 等で8桁のランダム数字を生成 → 設定ファイル(例 `config.js` の定数)に書き込む
-  - 発行されたコードは管理者がチームメンバーに個別共有する想定(サイト上には表示しない)
+- **合言葉は8桁のランダムな数字**(例: `04382891` のような、連番でなくランダム生成された文字列)。サイトを新しく立ち上げる(新チーム・新プロジェクトで使い回す)たびに管理者がサイト上のUIから発行し直す
+  - 合言葉入力画面に「管理者用: 合言葉を発行する」というリンクを設置する。押すと `crypto.getRandomValues` で8桁のランダム数字を生成し、Firestore(`settings/passcode` ドキュメント)に書き込む
+  - Node.jsスクリプトの実行や `config.js` の書き換え・再デプロイは不要。発行はサイト上で完結する
+  - 発行直後の画面にのみ一度だけ表示される。通常の合言葉入力画面や他のどの画面にも表示しない。管理者はその場でコピーしてチームメンバーに個別共有する
   - 001のような連番・推測しやすい値にはしない
-- Firestoreセキュリティルールは「認証済み(Anonymous含む)なら読み書き可」程度でよい
+- Firestoreセキュリティルール
+  - `settings/passcode`: 読み取りは誰でも可(合言葉ゲート自体が認証前に判定できるようにするため)、書き込み(発行)は認証済み(Anonymous含む)のみ
+  - `reports/*`: 認証済み(Anonymous含む)なら読み書き可
 
 ### ログアウト機能
 - ヘッダーに「ログアウト」ボタンを常設
@@ -32,6 +35,10 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /settings/passcode {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
     match /reports/{reportId} {
       allow read, write: if request.auth != null;
     }
@@ -39,7 +46,17 @@ service cloud.firestore {
 }
 ```
 
-## データモデル (Firestore: `reports` コレクション)
+## データモデル
+
+### `settings/passcode` ドキュメント(1件のみ)
+
+```
+settings/passcode
+  code: string        現在有効な8桁の合言葉
+  updatedAt: timestamp
+```
+
+### `reports` コレクション
 
 ```
 reports/{reportId}

@@ -1,6 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // 合言葉の現在値は誰でも読めるが、書き込み(発行)は認証済みのみ
+    match /settings/passcode {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
     match /reports/{reportId} {
       allow read, write: if request.auth != null;
     }

@@ -4,13 +4,13 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  setDoc,
   onSnapshot,
   serverTimestamp,
   orderBy,
   query,
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { db, ensureSignedIn, firebaseSignOut } from "./firebase.js";
-import { PASSCODE } from "./config.js";
 import { compressImage } from "./image.js";
 
 const PASSCODE_KEY = "hibinote_passcode_ok";
@@ -18,6 +18,10 @@ const AUTHOR_KEY = "hibinote_author";
 const MAX_DOC_SIZE = 900_000; // Firestore 1ドキュメント上限(1MB)に対する安全マージン
 
 const reportsCol = collection(db, "reports");
+const passcodeDocRef = doc(db, "settings", "passcode");
+
+let currentPasscode = null;
+let passcodeLoaded = false;
 
 let reports = [];
 let unsubscribeReports = null;
@@ -59,11 +63,40 @@ function closeGate() {
   localStorage.removeItem(PASSCODE_KEY);
 }
 
+function updateGateStatus() {
+  const statusEl = document.getElementById("passcode-status");
+  const submitBtn = document.querySelector("#passcode-form button[type=submit]");
+  if (!passcodeLoaded) {
+    statusEl.textContent = "読み込み中...";
+    submitBtn.disabled = true;
+  } else if (!currentPasscode) {
+    statusEl.textContent = "まだ合言葉が発行されていません。下の「管理者用」から発行してください。";
+    submitBtn.disabled = true;
+  } else {
+    statusEl.textContent = "";
+    submitBtn.disabled = false;
+  }
+}
+
+onSnapshot(
+  passcodeDocRef,
+  (snap) => {
+    passcodeLoaded = true;
+    currentPasscode = snap.exists() ? snap.data().code : null;
+    updateGateStatus();
+  },
+  (err) => {
+    console.error(err);
+    passcodeLoaded = true;
+    document.getElementById("passcode-status").textContent = "合言葉の読み込みに失敗しました";
+  }
+);
+
 document.getElementById("passcode-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const input = document.getElementById("passcode-input");
   const value = input.value.trim();
-  if (value === PASSCODE) {
+  if (currentPasscode && value === currentPasscode) {
     openGate();
     startApp();
   } else {
@@ -77,6 +110,70 @@ document.getElementById("logout-btn").addEventListener("click", () => {
   closeGate();
   firebaseSignOut();
   location.href = location.pathname;
+});
+
+// ---------- 合言葉の発行(管理者用) ----------
+
+document.getElementById("show-admin-btn").addEventListener("click", () => {
+  document.getElementById("gate-normal").classList.add("hidden");
+  document.getElementById("gate-admin").classList.remove("hidden");
+});
+
+document.getElementById("close-admin-btn").addEventListener("click", () => {
+  document.getElementById("generated-passcode-box").classList.add("hidden");
+  document.getElementById("gate-admin").classList.add("hidden");
+  document.getElementById("gate-normal").classList.remove("hidden");
+});
+
+function isTooSimplePasscode(code) {
+  const digits = code.split("");
+  const allSame = digits.every((d) => d === digits[0]);
+  const sorted = [...digits].sort().join("");
+  const ascending = digits.join("") === sorted;
+  const descending = digits.join("") === [...sorted].reverse().join("");
+  return allSame || ascending || descending;
+}
+
+function generateRandomPasscode() {
+  let code;
+  do {
+    const values = new Uint32Array(8);
+    crypto.getRandomValues(values);
+    code = Array.from(values, (n) => n % 10).join("");
+  } while (isTooSimplePasscode(code));
+  return code;
+}
+
+document.getElementById("generate-passcode-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("generate-passcode-btn");
+  btn.disabled = true;
+  try {
+    await ensureSignedIn();
+    const code = generateRandomPasscode();
+    await setDoc(passcodeDocRef, { code, updatedAt: serverTimestamp() });
+    document.getElementById("generated-passcode-text").textContent = code;
+    document.getElementById("generated-passcode-box").classList.remove("hidden");
+  } catch (err) {
+    console.error(err);
+    alert("合言葉の発行に失敗しました。通信環境を確認してください");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById("copy-passcode-btn").addEventListener("click", async () => {
+  const text = document.getElementById("generated-passcode-text").textContent;
+  const btn = document.getElementById("copy-passcode-btn");
+  try {
+    await navigator.clipboard.writeText(text);
+    const original = btn.textContent;
+    btn.textContent = "コピーしました";
+    setTimeout(() => {
+      btn.textContent = original;
+    }, 1500);
+  } catch (err) {
+    console.error(err);
+  }
 });
 
 function startApp() {
