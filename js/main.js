@@ -334,7 +334,7 @@ document.getElementById("reissue-passcode-btn").addEventListener("click", async 
   const btn = document.getElementById("reissue-passcode-btn");
   btn.disabled = true;
   try {
-    await ensureSignedIn();
+    await withTimeout(ensureSignedIn(), 10000);
     const code = generateRandomPasscode();
     await setDoc(passcodeDocRef, { code, updatedAt: serverTimestamp() });
     // currentPasscodeとその表示はonSnapshotのコールバックで自動更新される
@@ -346,15 +346,24 @@ document.getElementById("reissue-passcode-btn").addEventListener("click", async 
   }
 });
 
+// ensureSignedIn()はFirebase Auth内部(IndexedDB等)の問題で
+// 成功も失敗も返さず固まることがあるため、タイムアウトで打ち切れるようにする
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+  ]);
+}
+
 function startApp() {
   showTopScreen("app");
   setLoading(true);
-  ensureSignedIn()
+  withTimeout(ensureSignedIn(), 10000)
     .then(subscribeReports)
     .catch((err) => {
       console.error(err);
       setLoading(false);
-      alert("Firebaseへの接続に失敗しました");
+      alert("読み込みに失敗しました。通信環境をご確認のうえ再読み込みしてください。");
     });
 }
 
