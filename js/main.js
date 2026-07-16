@@ -617,6 +617,7 @@ function goToList() {
   url.searchParams.delete("code");
   history.replaceState(null, "", url);
   showView("list");
+  window.scrollTo(0, 0);
 }
 
 async function handleDelete(r) {
