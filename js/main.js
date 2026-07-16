@@ -4,6 +4,7 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  getDoc,
   setDoc,
   onSnapshot,
   serverTimestamp,
@@ -32,7 +33,6 @@ let passcodeDocRef = null;
 let passcodeUnsubscribe = null;
 
 let currentPasscode = null;
-let passcodeLoaded = false;
 
 let reports = [];
 let unsubscribeReports = null;
@@ -103,10 +103,8 @@ function enterRoom(id, { isNew }) {
   roomId = id;
   reportsCol = collection(db, "rooms", roomId, "reports");
   passcodeDocRef = doc(db, "rooms", roomId, "settings", "passcode");
-  subscribePasscode();
 
   if (isNew) {
-    document.getElementById("new-room-invite-link").value = buildInviteLink(roomId);
     showTopScreen("newroom");
   } else if (isGateOpen()) {
     startApp();
@@ -146,10 +144,30 @@ document.getElementById("welcome-join-btn").addEventListener("click", () => {
   enterRoom(candidate, { isNew: false });
 });
 
-document.getElementById("welcome-create-btn").addEventListener("click", () => {
-  const id = generateRoomId();
-  saveRoomId(id);
-  enterRoom(id, { isNew: true });
+// 新規チームは作成の時点でその場で初回合言葉を発行し、作成者は自動的にログイン済みにする。
+// (ルール変更後は未ログイン状態で「合言葉が発行済みか」を判定できないため、
+//  ゲート画面に着地する前に必ず合言葉とセッションが揃っている状態にする)
+document.getElementById("welcome-create-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("welcome-create-btn");
+  btn.disabled = true;
+  try {
+    const id = generateRoomId();
+    const code = generateRandomPasscode();
+    const user = await withTimeout(ensureSignedIn(), 10000);
+    await setDoc(doc(db, "rooms", id, "settings", "passcode"), { code, updatedAt: serverTimestamp() });
+    await setDoc(doc(db, "rooms", id, "sessions", user.uid), { passcode: code, createdAt: serverTimestamp() });
+
+    saveRoomId(id);
+    openGate();
+    enterRoom(id, { isNew: true });
+    document.getElementById("new-room-invite-link").value = buildInviteLink(roomId);
+    document.getElementById("new-room-passcode-text").textContent = code;
+  } catch (err) {
+    console.error(err);
+    alert("チームの作成に失敗しました。通信環境を確認してください");
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 document.getElementById("new-room-continue-btn").addEventListener("click", () => {
@@ -196,65 +214,74 @@ function closeGate() {
   localStorage.removeItem(PASSCODE_KEY);
 }
 
-function updateGateStatus() {
+// 合言葉の検証はローカル比較ではなく、Firestoreルールが実際に検証する
+// 「セッション証明ドキュメントの作成」を試みることで行う。成功=合言葉が正しい。
+async function attemptLogin(code) {
+  const errorEl = document.getElementById("passcode-error");
   const statusEl = document.getElementById("passcode-status");
-  const submitBtn = document.querySelector("#passcode-form button[type=submit]");
-  const issueBtn = document.getElementById("issue-first-passcode-btn");
-  if (!passcodeLoaded) {
-    statusEl.textContent = "読み込み中...";
-    submitBtn.disabled = true;
-    issueBtn.classList.add("hidden");
-  } else if (!currentPasscode) {
-    statusEl.textContent = "まだ合言葉が発行されていません。このチームを作った人は下のボタンから発行してください。";
-    submitBtn.disabled = true;
-    issueBtn.classList.remove("hidden");
-  } else {
-    statusEl.textContent = "";
-    submitBtn.disabled = false;
-    issueBtn.classList.add("hidden");
+  errorEl.textContent = "";
+  statusEl.textContent = "";
+
+  let user;
+  try {
+    user = await withTimeout(ensureSignedIn(), 10000);
+  } catch (err) {
+    console.error(err);
+    errorEl.textContent = "通信に失敗しました。もう一度お試しください";
+    return;
+  }
+
+  const attemptsRef = doc(db, "rooms", roomId, "loginAttempts", user.uid);
+  let attemptsSnap = null;
+  try {
+    attemptsSnap = await getDoc(attemptsRef);
+  } catch (err) {
+    console.error(err);
+  }
+  if (attemptsSnap && attemptsSnap.exists()) {
+    const lockedUntil = attemptsSnap.data().lockedUntil;
+    if (lockedUntil && lockedUntil.toMillis() > Date.now()) {
+      const mins = Math.ceil((lockedUntil.toMillis() - Date.now()) / 60000);
+      errorEl.textContent = `試行回数が多すぎます。${mins}分後に再試行してください`;
+      return;
+    }
+  }
+
+  try {
+    await setDoc(doc(db, "rooms", roomId, "sessions", user.uid), {
+      passcode: code,
+      createdAt: serverTimestamp(),
+    });
+    await deleteDoc(attemptsRef).catch(() => {});
+    openGate();
+    startApp();
+  } catch (err) {
+    console.error(err);
+    await recordFailedAttempt(attemptsRef, attemptsSnap);
+    errorEl.textContent = "合言葉が違います";
   }
 }
 
-function subscribePasscode() {
-  if (passcodeUnsubscribe) passcodeUnsubscribe();
-  passcodeLoaded = false;
-  // 通信環境によってはonSnapshotが成功も失敗も返さず固まることがあるための保険
-  const timeoutId = setTimeout(() => {
-    if (passcodeLoaded) return;
-    passcodeLoaded = true;
-    document.getElementById("passcode-status").textContent =
-      "読み込みに時間がかかっています。通信環境をご確認のうえ再読み込みしてください。";
-  }, 10000);
-  passcodeUnsubscribe = onSnapshot(
-    passcodeDocRef,
-    (snap) => {
-      clearTimeout(timeoutId);
-      passcodeLoaded = true;
-      currentPasscode = snap.exists() ? snap.data().code : null;
-      updateGateStatus();
-      updateAppPasscodeDisplay();
-    },
-    (err) => {
-      clearTimeout(timeoutId);
-      console.error(err);
-      passcodeLoaded = true;
-      document.getElementById("passcode-status").textContent = "合言葉の読み込みに失敗しました";
-    }
-  );
+async function recordFailedAttempt(attemptsRef, prevSnap) {
+  const prevCount = prevSnap && prevSnap.exists() ? prevSnap.data().count || 0 : 0;
+  const newCount = prevCount + 1;
+  const data = { count: newCount, updatedAt: serverTimestamp(), lockedUntil: null };
+  if (newCount >= 5) {
+    data.count = 0;
+    data.lockedUntil = new Date(Date.now() + 60 * 60 * 1000);
+  }
+  try {
+    await setDoc(attemptsRef, data);
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 document.getElementById("passcode-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const input = document.getElementById("passcode-input");
-  const value = input.value.trim();
-  if (currentPasscode && value === currentPasscode) {
-    openGate();
-    startApp();
-  } else {
-    document.getElementById("passcode-error").textContent = "合言葉が違います";
-    input.value = "";
-    input.focus();
-  }
+  const code = input.value.trim();
+  attemptLogin(code);
 });
 
 document.getElementById("logout-btn").addEventListener("click", () => {
@@ -273,28 +300,6 @@ document.getElementById("switch-project-btn").addEventListener("click", () => {
   clearRoomId();
   closeGate();
   location.href = location.pathname;
-});
-
-// このチームにまだ合言葉が無い場合だけ表示される初回発行ボタン。
-// 保護すべきものがまだ何も無い状態なので、ゲート画面から直接発行できてもセキュリティ上問題ない。
-document.getElementById("issue-first-passcode-btn").addEventListener("click", async () => {
-  const btn = document.getElementById("issue-first-passcode-btn");
-  btn.disabled = true;
-  try {
-    await withTimeout(ensureSignedIn(), 10000);
-    const code = generateRandomPasscode();
-    await setDoc(passcodeDocRef, { code, updatedAt: serverTimestamp() });
-    alert(
-      `合言葉を発行しました: ${code}\nチームメンバーに共有してください(あとでヘッダーの「招待リンク」からも確認できます)。`
-    );
-    openGate();
-    startApp();
-  } catch (err) {
-    console.error(err);
-    alert("合言葉の発行に失敗しました。通信環境を確認してください");
-  } finally {
-    btn.disabled = false;
-  }
 });
 
 // ---------- 招待リンク(ゲート画面から確認、合言葉ゲート通過前なので合言葉自体は出さない) ----------
@@ -384,12 +389,30 @@ function startApp() {
   showTopScreen("app");
   setLoading(true);
   withTimeout(ensureSignedIn(), 10000)
-    .then(subscribeReports)
+    .then(() => {
+      subscribePasscode();
+      subscribeReports();
+    })
     .catch((err) => {
       console.error(err);
       setLoading(false);
       alert("読み込みに失敗しました。通信環境をご確認のうえ再読み込みしてください。");
     });
+}
+
+// ログイン後(セッション証明あり)にだけ購読できる。チーム情報パネルでの表示用。
+function subscribePasscode() {
+  if (passcodeUnsubscribe) passcodeUnsubscribe();
+  passcodeUnsubscribe = onSnapshot(
+    passcodeDocRef,
+    (snap) => {
+      currentPasscode = snap.exists() ? snap.data().code : null;
+      updateAppPasscodeDisplay();
+    },
+    (err) => {
+      console.error(err);
+    }
+  );
 }
 
 // ---------- Firestore購読 ----------
@@ -429,7 +452,16 @@ function subscribeReports() {
       clearTimeout(timeoutId);
       console.error(err);
       setLoading(false);
-      alert("報告データの取得に失敗しました");
+      if (firstLoad && err.code === "permission-denied") {
+        // ルール変更等でこの端末のセッション証明が無効になっているケース。
+        // 詰ませずに合言葉の再入力に戻す。
+        closeGate();
+        showTopScreen("gate");
+        document.getElementById("passcode-status").textContent = "もう一度合言葉を入力してください。";
+        document.getElementById("passcode-input").focus();
+      } else {
+        alert("報告データの取得に失敗しました");
+      }
     }
   );
 }
@@ -585,6 +617,7 @@ function goToList() {
   url.searchParams.delete("code");
   history.replaceState(null, "", url);
   showView("list");
+  window.scrollTo(0, 0);
 }
 
 async function handleDelete(r) {
