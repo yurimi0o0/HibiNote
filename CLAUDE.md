@@ -28,32 +28,54 @@
 - 合言葉が正しければ:
   1. `localStorage` に合言葉一致フラグを保存(以降スキップ)
   2. 裏側でFirebase Anonymous Authを自動実行(ユーザー操作不要、見た目に一切出さない)
-- **合言葉は6桁のランダムな数字**(例: `048238` のような、連番でなくランダム生成された文字列)。チーム(ルーム)ごとに独立しており、そのチームの管理者がサイト上のUIから発行する
-  - 合言葉入力画面の「招待リンク・合言葉を確認する」パネルに、招待リンクと並べて現在の合言葉・「合言葉を発行し直す」ボタンを設置する。押すと `crypto.getRandomValues` で6桁のランダム数字を生成し、Firestore(`rooms/{roomId}/settings/passcode` ドキュメント)に書き込む
+- **合言葉は6桁のランダムな数字**(例: `048238` のような、連番でなくランダム生成された文字列)。チーム(ルーム)ごとに独立している
+  - 新規チーム作成時にその場で初回の合言葉を自動発行する(作成した人はその場でログイン済みになる)。以降は合言葉入力画面の「招待リンク・合言葉を確認する」パネル(ログイン後にヘッダーの「招待リンク」からも開ける)から確認・「合言葉を発行し直す」ができる
+  - `crypto.getRandomValues` で6桁のランダム数字を生成し、Firestore(`rooms/{roomId}/settings/passcode` ドキュメント)に書き込む
   - Node.jsスクリプトの実行やコードの書き換え・再デプロイは不要。発行・確認ともにサイト上で完結する
-  - このパネルはいつでも開いて現在の合言葉を確認・コピーできる(ヘッダー・ゲート画面から)。管理者はチームメンバーに個別共有する
   - 001のような連番・推測しやすい値にはしない
-- Firestoreセキュリティルール
-  - `rooms/{roomId}/settings/passcode`: 読み取りは誰でも可(合言葉ゲート自体が認証前に判定できるようにするため)、書き込み(発行)は認証済み(Anonymous含む)のみ
-  - `rooms/{roomId}/reports/*`: 認証済み(Anonymous含む)なら読み書き可
+- **合言葉はFirestoreセキュリティルール上で実際に検証する。** クライアント側で値を読んで比較するのではなく、「セッション証明ドキュメント」の作成を試み、ルールが `settings/passcode` の値と突き合わせて成否を判定する(詳細は「認証の仕組み(セッション証明)」章)。ルームIDだけを知っていても合言葉を知らなければデータへは到達できない
+- 簡易ロックアウト: 同一端末(匿名認証のUID単位)で5回連続して合言葉を間違えると1時間ログインを試行できなくする。バックエンドを持たない設計上、IPアドレス等での識別はできずログアウトして新しいUIDを取得すれば回避できてしまうが、通常のUI操作からの連打・素朴な総当たりを止める簡易的な抑止として割り切る
+
+### 認証の仕組み(セッション証明)
+- `rooms/{roomId}/sessions/{uid}` ドキュメントが「そのユーザーは正しい合言葉を知っている」ことのサーバー側証明。作成時にルールが `request.resource.data.passcode == (settings/passcodeの値)` を検証するため、間違った値では作成自体が失敗する
+- ログイン処理は「合言葉を読んで比較する」のではなく「このセッションドキュメントの作成を試みて、成功したらログイン成功・失敗(permission-denied)したらログイン失敗」という流れで行う
+- `settings/passcode` の読み取りや `reports/*` の読み書きは、このセッション証明を持っている(=ログイン済みである)ことを条件にする
+- 合言葉を発行し直しても、既にセッション証明を持っている(=ログイン済みの)端末は追い出されない。新しいログイン試行にのみ新しい合言葉が必要になる
 
 ### ログアウト機能
 - ヘッダーに「ログアウト」ボタンを常設
-- 押すと `localStorage` の合言葉一致フラグを削除 → 合言葉入力画面に戻る
+- 押すと `localStorage` の合言葉一致フラグを削除し、Firebase Anonymous Authもサインアウトする(次回は新しいUIDで再ログインする形になる) → 合言葉入力画面に戻る
 - 用途: 端末を共有してる場合や、別の合言葉(別チーム・別プロジェクト)に切り替えたい場合
-- Firebase Anonymous Authのサインアウト自体は必須ではない(合言葉ゲートだけ戻せば十分)。ただし気になるなら `signOut()` も一緒に呼んでOK
 
 ```js
 // セキュリティルール例(Firestore)
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /rooms/{roomId}/sessions/{uid} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid
+        && (
+          !exists(/databases/$(database)/documents/rooms/$(roomId)/loginAttempts/$(uid))
+          || get(/databases/$(database)/documents/rooms/$(roomId)/loginAttempts/$(uid)).data.lockedUntil == null
+          || get(/databases/$(database)/documents/rooms/$(roomId)/loginAttempts/$(uid)).data.lockedUntil < request.time
+        )
+        && request.resource.data.passcode == get(/databases/$(database)/documents/rooms/$(roomId)/settings/passcode).data.code;
+    }
+    match /rooms/{roomId}/loginAttempts/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
     match /rooms/{roomId}/settings/passcode {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read: if request.auth != null
+        && exists(/databases/$(database)/documents/rooms/$(roomId)/sessions/$(request.auth.uid));
+      allow create: if request.auth != null
+        && !exists(/databases/$(database)/documents/rooms/$(roomId)/settings/passcode);
+      allow update: if request.auth != null
+        && exists(/databases/$(database)/documents/rooms/$(roomId)/sessions/$(request.auth.uid));
     }
     match /rooms/{roomId}/reports/{reportId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if request.auth != null
+        && exists(/databases/$(database)/documents/rooms/$(roomId)/sessions/$(request.auth.uid));
     }
   }
 }
@@ -68,6 +90,23 @@ service cloud.firestore {
 ```
 rooms/{roomId}/settings/passcode
   code: string        現在有効な6桁の合言葉
+  updatedAt: timestamp
+```
+
+### `rooms/{roomId}/sessions/{uid}` ドキュメント(ログイン成功時に作成)
+
+```
+rooms/{roomId}/sessions/{uid}
+  passcode: string    ログイン時に入力された合言葉(ルールでの検証用)
+  createdAt: timestamp
+```
+
+### `rooms/{roomId}/loginAttempts/{uid}` ドキュメント(ログイン失敗回数の記録)
+
+```
+rooms/{roomId}/loginAttempts/{uid}
+  count: number
+  lockedUntil: timestamp | null
   updatedAt: timestamp
 ```
 
@@ -99,13 +138,14 @@ rooms/{roomId}/reports/{reportId}
 - 下に控えめに「新しくチームを作る」リンク
 
 ### 0b. 新規チーム作成画面(「新しくチームを作る」を押した場合のみ表示)
-- 招待リンクの表示+コピーボタン
-- 「はじめる」で合言葉画面(または既にログイン済みならメイン画面)に進む
+- 作成と同時に初回の合言葉も自動発行し、作成した人はその場でログイン済みにする
+- 招待リンクと発行された合言葉の表示(この画面を離れると合言葉は再確認できない旨を明記)
+- 「はじめる」でメイン画面に進む(合言葉入力は不要、既にログイン済みのため)
 
-### 1. 合言葉入力画面(ルーム決定後に表示)
+### 1. 合言葉入力画面(ルーム決定後、未ログインの場合に表示)
 - シンプルな1入力+ボタン
-- 間違い時はエラー表示、正解でメイン画面へ遷移
-- 「招待リンク・合言葉を確認する」「別のチームに切り替える」の2つのリンクを併設。前者を開くと招待リンクと現在の合言葉の確認・コピー、合言葉の発行し直しがまとめてできる
+- 間違い時はエラー表示、5回間違えると1時間ロック。正解でメイン画面へ遷移
+- 「招待リンク・合言葉を確認する」「別のチームに切り替える」の2つのリンクを併設。前者は招待リンクの確認のみ(合言葉はログイン前の画面には出さない)
 
 ### 2. 一覧画面(トップ)
 - 日付ごとにグルーピングして新しい順に表示(例: 見出し `7/15(火)` の下にその日の報告カードが並ぶ)

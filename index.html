@@ -58,7 +58,14 @@
       <input type="text" id="new-room-invite-link" readonly>
       <button type="button" id="copy-new-room-invite-btn" class="btn">コピー</button>
     </div>
-    <p class="hint-text">このリンクを開いた人だけが、このチームの報告を見たり投稿したりできます。友達に共有してください。合言葉は次の画面で発行できます。</p>
+    <p class="hint-text">このリンクを開いた人だけが、このチームの報告を見たり投稿したりできます。友達に共有してください。</p>
+
+    <p class="hint-text">合言葉(この画面を離れると確認できなくなります):</p>
+    <div class="passcode-display">
+      <span id="new-room-passcode-text"></span>
+    </div>
+    <p class="hint-text">上の招待リンクと合言葉をチームメンバーに共有してください(あとでヘッダーの「招待リンク」からも確認できます)。</p>
+
     <button type="button" id="new-room-continue-btn" class="btn btn-primary">はじめる</button>
   </div>
 </div>
@@ -76,7 +83,6 @@
       </form>
       <p id="passcode-error" class="error-text" role="alert"></p>
       <p id="passcode-status" class="hint-text"></p>
-      <button type="button" id="issue-first-passcode-btn" class="btn btn-primary hidden">合言葉を発行する</button>
       <button type="button" id="show-invite-btn" class="link-btn">招待リンクを表示する</button>
       <button type="button" id="switch-project-btn" class="link-btn">別のチームに切り替える</button>
     </div>

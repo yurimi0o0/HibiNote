@@ -2,12 +2,40 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // チーム(ルーム)ごとに完全に独立した名前空間として扱う
-    match /rooms/{roomId}/settings/passcode {
-      allow read: if true;
-      allow write: if request.auth != null;
+
+    // 「正しい合言葉を知っている」ことのサーバー側証明。
+    // 作成時に、送信された合言葉が settings/passcode の値と一致するかをルールで検証する。
+    // 間違った値では作成そのものが失敗する(= ログイン失敗)。
+    match /rooms/{roomId}/sessions/{uid} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid
+        && (
+          !exists(/databases/$(database)/documents/rooms/$(roomId)/loginAttempts/$(uid))
+          || get(/databases/$(database)/documents/rooms/$(roomId)/loginAttempts/$(uid)).data.lockedUntil == null
+          || get(/databases/$(database)/documents/rooms/$(roomId)/loginAttempts/$(uid)).data.lockedUntil < request.time
+        )
+        && request.resource.data.passcode == get(/databases/$(database)/documents/rooms/$(roomId)/settings/passcode).data.code;
     }
+
+    // ログイン失敗回数の記録(簡易ロックアウト用)。本人のみ読み書き可能。
+    match /rooms/{roomId}/loginAttempts/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /rooms/{roomId}/settings/passcode {
+      allow read: if request.auth != null
+        && exists(/databases/$(database)/documents/rooms/$(roomId)/sessions/$(request.auth.uid));
+      // 初回発行(そのルームにまだ合言葉が無い)はブートストラップとして許可
+      allow create: if request.auth != null
+        && !exists(/databases/$(database)/documents/rooms/$(roomId)/settings/passcode);
+      // 発行し直しはセッション証明を持っている場合のみ
+      allow update: if request.auth != null
+        && exists(/databases/$(database)/documents/rooms/$(roomId)/sessions/$(request.auth.uid));
+    }
+
     match /rooms/{roomId}/reports/{reportId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if request.auth != null
+        && exists(/databases/$(database)/documents/rooms/$(roomId)/sessions/$(request.auth.uid));
     }
   }
 }
